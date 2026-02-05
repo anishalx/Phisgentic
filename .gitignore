@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Next.js build output
+.next/
+**/. next/
+
+# Build outputs
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env*.local
+
+# Misc
+planning.md
+*.log
+.DS_Store

@@ -1,0 +1,205 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 10, 10, 15;
+  --foreground: 255, 255, 255;
+  --accent: 139, 92, 246;
+  --safe: 34, 197, 94;
+  --warning: 251, 146, 60;
+  --danger: 239, 68, 68;
+}
+
+body {
+  background: rgb(var(--background));
+  color: rgb(var(--foreground));
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  min-height: 100vh;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+/* Glass Effect */
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(30px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Gradient Text */
+.gradient-text {
+  background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Primary Button */
+.btn-primary {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  color: white;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.3);
+}
+
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 8px 30px rgba(139, 92, 246, 0.5);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Verdict Cards */
+.verdict-safe {
+  --card-color: var(--safe);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%);
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.verdict-warning {
+  --card-color: var(--warning);
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.15) 0%, rgba(251, 146, 60, 0.05) 100%);
+  border-color: rgba(251, 146, 60, 0.4);
+}
+
+.verdict-danger {
+  --card-color: var(--danger);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.05) 100%);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+/* Risk Gauge */
+.gauge-ring {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.gauge-bg {
+  stroke: rgba(255, 255, 255, 0.1);
+}
+
+.gauge-safe {
+  stroke: rgb(var(--safe));
+  filter: drop-shadow(0 0 8px rgba(34, 197, 94, 0.6));
+}
+
+.gauge-warning {
+  stroke: rgb(var(--warning));
+  filter: drop-shadow(0 0 8px rgba(251, 146, 60, 0.6));
+}
+
+.gauge-danger {
+  stroke: rgb(var(--danger));
+  filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.6));
+}
+
+/* Signal Badges */
+.signal-critical {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.signal-high {
+  background: rgba(251, 146, 60, 0.2);
+  border: 1px solid rgba(251, 146, 60, 0.4);
+  color: #fdba74;
+}
+
+.signal-medium {
+  background: rgba(250, 204, 21, 0.2);
+  border: 1px solid rgba(250, 204, 21, 0.4);
+  color: #fef08a;
+}
+
+.signal-low {
+  background: rgba(34, 197, 94, 0.2);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #86efac;
+}
+
+/* Log Status */
+.log-info { color: #94a3b8; }
+.log-success { color: #4ade80; }
+.log-warning { color: #fb923c; }
+.log-error { color: #f87171; }
+
+/* Animations */
+@keyframes pulse-glow {
+  0%, 100% { 
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+  }
+  50% { 
+    box-shadow: 0 0 40px rgba(139, 92, 246, 0.6);
+  }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.scanning-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(139, 92, 246, 0.1) 50%,
+    transparent 100%
+  );
+  animation: scan-line 1.5s ease-in-out infinite;
+}
+
+/* Input Styles */
+input[type="text"] {
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+input[type="text"]::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* Expandable Agent Section */
+.agent-section {
+  transition: all 0.3s ease;
+}
+
+.agent-section:hover {
+  background: rgba(255, 255, 255, 0.02);
+}

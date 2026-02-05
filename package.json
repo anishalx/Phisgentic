@@ -1,0 +1,17 @@
+{
+  "name": "phishguard-ai",
+  "version": "1.0.0",
+  "description": "Multi-Agent AI Phishing Detection Browser Extension",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build && npm run copy-assets",
+    "copy-assets": "node scripts/copy-assets.js",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "typescript": "^5.4.0",
+    "vite": "^5.4.0"
+  }
+}
