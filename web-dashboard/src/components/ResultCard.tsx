@@ -2,7 +2,6 @@
 
 import { motion } from "framer-motion";
 import { 
-  Shield, 
   ShieldAlert, 
   ShieldX,
   ShieldCheck,
@@ -40,10 +39,10 @@ export function ResultCard({ verdict }: ResultCardProps) {
     switch (verdict.action) {
       case "allow":
         return {
-          bgColor: "from-green-500/20 to-green-600/5",
-          borderColor: "border-green-500/50",
-          textColor: "text-green-400",
-          glowColor: "shadow-green-500/20",
+          bgColor: "bg-green-50",
+          borderColor: "border-green-300",
+          textColor: "text-green-700",
+          iconBg: "bg-green-100",
           icon: ShieldCheck,
           label: "SAFE",
           sublabel: "No threats detected",
@@ -51,10 +50,10 @@ export function ResultCard({ verdict }: ResultCardProps) {
         };
       case "warn":
         return {
-          bgColor: "from-amber-500/20 to-orange-600/5",
-          borderColor: "border-amber-500/50",
-          textColor: "text-amber-400",
-          glowColor: "shadow-amber-500/20",
+          bgColor: "bg-amber-50",
+          borderColor: "border-amber-300",
+          textColor: "text-amber-700",
+          iconBg: "bg-amber-100",
           icon: ShieldAlert,
           label: "SUSPICIOUS",
           sublabel: "Proceed with caution",
@@ -62,10 +61,10 @@ export function ResultCard({ verdict }: ResultCardProps) {
         };
       case "block":
         return {
-          bgColor: "from-red-500/30 to-red-900/10",
-          borderColor: "border-red-500/60",
-          textColor: "text-red-400",
-          glowColor: "shadow-red-500/30",
+          bgColor: "bg-red-50",
+          borderColor: "border-red-300",
+          textColor: "text-red-700",
+          iconBg: "bg-red-100",
           icon: ShieldX,
           label: "DANGEROUS",
           sublabel: "Phishing threat detected",
@@ -82,20 +81,20 @@ export function ResultCard({ verdict }: ResultCardProps) {
       initial={{ opacity: 0, scale: 0.95, y: 20 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ duration: 0.5, type: "spring" }}
-      className="w-full max-w-3xl mx-auto mt-8"
+      className="w-full max-w-6xl mx-auto mt-8"
     >
       <div
-        className={`glass rounded-2xl border-2 ${styles.borderColor} overflow-hidden shadow-2xl ${styles.glowColor}`}
+        className={`glass rounded-2xl border-2 ${styles.borderColor} overflow-hidden shadow-xl`}
       >
         {/* Header - Verdict Display */}
-        <div className={`bg-gradient-to-r ${styles.bgColor} p-8`}>
+        <div className={`${styles.bgColor} p-8`}>
           <div className="flex items-center gap-6">
             {/* Animated Icon */}
             <motion.div
               initial={{ rotate: -180, opacity: 0, scale: 0 }}
               animate={{ rotate: 0, opacity: 1, scale: 1 }}
               transition={{ duration: 0.6, type: "spring" }}
-              className={`p-4 rounded-2xl bg-black/20 ${verdict.action === "block" ? "animate-pulse" : ""}`}
+              className={`p-4 rounded-2xl ${styles.iconBg} ${verdict.action === "block" ? "animate-pulse" : ""}`}
             >
               <Icon className={`w-16 h-16 ${styles.textColor}`} />
             </motion.div>
@@ -106,7 +105,7 @@ export function ResultCard({ verdict }: ResultCardProps) {
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.2 }}
-                className="text-gray-400 text-sm uppercase tracking-wider mb-1"
+                className="text-gray-500 text-sm uppercase tracking-wider mb-1 font-medium"
               >
                 Security Verdict
               </motion.p>
@@ -122,7 +121,7 @@ export function ResultCard({ verdict }: ResultCardProps) {
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.4 }}
-                className="text-gray-400 text-sm mt-1"
+                className="text-gray-600 text-sm mt-1"
               >
                 {styles.sublabel}
               </motion.p>
@@ -136,7 +135,7 @@ export function ResultCard({ verdict }: ResultCardProps) {
                   cy="56"
                   r="48"
                   fill="none"
-                  stroke="rgba(255,255,255,0.1)"
+                  stroke="rgba(0,0,0,0.08)"
                   strokeWidth="10"
                 />
                 <motion.circle
@@ -163,7 +162,7 @@ export function ResultCard({ verdict }: ResultCardProps) {
                 >
                   {verdict.overallRiskScore}
                 </motion.span>
-                <span className="text-xs text-gray-500 uppercase">Risk</span>
+                <span className="text-xs text-gray-500 uppercase font-medium">Risk</span>
               </div>
             </div>
           </div>
@@ -175,11 +174,11 @@ export function ResultCard({ verdict }: ResultCardProps) {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             transition={{ delay: 0.5 }}
-            className="bg-red-950/50 border-y border-red-500/30 px-6 py-4"
+            className="bg-red-100 border-y border-red-200 px-6 py-4"
           >
             <div className="flex items-center gap-2 mb-3">
-              <AlertOctagon className="w-5 h-5 text-red-400" />
-              <span className="text-red-400 font-bold text-sm uppercase tracking-wider">
+              <AlertOctagon className="w-5 h-5 text-red-600" />
+              <span className="text-red-700 font-bold text-sm uppercase tracking-wider">
                 Critical Threats Detected ({criticalSignals.length})
               </span>
             </div>
@@ -190,14 +189,14 @@ export function ResultCard({ verdict }: ResultCardProps) {
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: 0.6 + index * 0.1 }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-red-500/20 border border-red-500/40 text-red-300"
+                  className="signal-critical inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
                 >
                   <XCircle className="w-3 h-3" />
                   {signal.type.replace(/_/g, " ")}
                 </motion.span>
               ))}
               {criticalSignals.length > 5 && (
-                <span className="px-3 py-1.5 text-xs text-red-400">
+                <span className="px-3 py-1.5 text-xs text-red-600 font-medium">
                   +{criticalSignals.length - 5} more
                 </span>
               )}
@@ -211,11 +210,11 @@ export function ResultCard({ verdict }: ResultCardProps) {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             transition={{ delay: 0.5 }}
-            className="bg-amber-950/30 border-y border-amber-500/30 px-6 py-4"
+            className="bg-amber-100 border-y border-amber-200 px-6 py-4"
           >
             <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="w-5 h-5 text-amber-400" />
-              <span className="text-amber-400 font-bold text-sm uppercase tracking-wider">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+              <span className="text-amber-700 font-bold text-sm uppercase tracking-wider">
                 Warning Signals ({criticalSignals.length})
               </span>
             </div>
@@ -226,7 +225,7 @@ export function ResultCard({ verdict }: ResultCardProps) {
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: 0.6 + index * 0.1 }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-amber-500/20 border border-amber-500/40 text-amber-300"
+                  className="signal-high inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
                 >
                   <AlertTriangle className="w-3 h-3" />
                   {signal.type.replace(/_/g, " ")}
@@ -239,26 +238,26 @@ export function ResultCard({ verdict }: ResultCardProps) {
         {/* Body */}
         <div className="p-6 space-y-6">
           {/* URL */}
-          <div className="flex items-center gap-2 p-4 bg-black/30 rounded-xl border border-white/5">
-            <ExternalLink className="w-5 h-5 text-gray-400 flex-shrink-0" />
-            <span className="text-gray-500 text-sm">URL:</span>
+          <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
+            <ExternalLink className="w-5 h-5 text-gray-500 flex-shrink-0" />
+            <span className="text-gray-500 text-sm font-medium">URL:</span>
             <a
               href={verdict.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-gray-300 hover:text-purple-400 truncate text-sm font-mono transition-colors"
+              className="text-gray-700 hover:text-red-600 truncate text-sm font-mono transition-colors"
             >
               {verdict.url}
             </a>
           </div>
 
           {/* Summary */}
-          <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+          <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
             <div className="flex items-center gap-2 mb-3">
-              <Zap className="w-4 h-4 text-purple-400" />
-              <h3 className="text-white font-semibold">Analysis Summary</h3>
+              <Zap className="w-4 h-4 text-red-600" />
+              <h3 className="text-gray-900 font-semibold">Analysis Summary</h3>
             </div>
-            <p className="text-gray-300 text-sm leading-relaxed">
+            <p className="text-gray-700 text-sm leading-relaxed">
               {verdict.summary}
             </p>
           </div>
@@ -266,37 +265,37 @@ export function ResultCard({ verdict }: ResultCardProps) {
           {/* Screenshot */}
           {verdict.screenshot && (
             <div>
-              <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-purple-400" />
+              <h3 className="text-gray-900 font-semibold mb-3 flex items-center gap-2">
+                <ImageIcon className="w-4 h-4 text-red-600" />
                 Page Screenshot
               </h3>
-              <div className="relative rounded-xl overflow-hidden border border-white/10 shadow-lg">
+              <div className="relative rounded-xl overflow-hidden border border-gray-200 shadow-md">
                 <img
                   src={`data:image/jpeg;base64,${verdict.screenshot}`}
                   alt="Page screenshot"
                   className="w-full h-auto"
                 />
                 {verdict.action === "block" && (
-                  <div className="absolute inset-0 bg-red-500/10 pointer-events-none" />
+                  <div className="absolute inset-0 bg-red-500/5 pointer-events-none" />
                 )}
               </div>
             </div>
           )}
 
           {/* Meta Info */}
-          <div className="flex items-center justify-between pt-4 border-t border-white/10">
+          <div className="flex items-center justify-between pt-4 border-t border-gray-200">
             <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-gray-500" />
+              <Clock className="w-4 h-4 text-gray-400" />
               <span className="text-gray-500 text-sm">
                 {new Date(verdict.timestamp).toLocaleString()}
               </span>
             </div>
             <div className="flex items-center gap-4">
               <span className="text-gray-500 text-sm">
-                Confidence: <span className="text-white font-medium">{Math.round(verdict.confidence * 100)}%</span>
+                Confidence: <span className="text-gray-900 font-semibold">{Math.round(verdict.confidence * 100)}%</span>
               </span>
               <span className="text-gray-500 text-sm">
-                Agents: <span className="text-white font-medium">{verdict.agentResults.length}</span>
+                Agents: <span className="text-gray-900 font-semibold">{verdict.agentResults.length}</span>
               </span>
             </div>
           </div>

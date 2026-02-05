@@ -52,7 +52,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen py-12 px-4">
-      <div className="container mx-auto">
+      <div className="max-w-7xl mx-auto">
         {/* Scanning Interface */}
         <ScanningInterface onScan={handleScan} status={status} />
 
@@ -66,9 +66,9 @@ export default function Home() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-3xl mx-auto mt-8 p-6 glass rounded-2xl border border-red-500/50"
+            className="w-full max-w-6xl mx-auto mt-8 p-6 bg-red-50 rounded-2xl border-2 border-red-300"
           >
-            <p className="text-red-400">{error}</p>
+            <p className="text-red-700 font-medium">{error}</p>
           </motion.div>
         )}
 
@@ -87,7 +87,7 @@ export default function Home() {
           transition={{ delay: 0.5 }}
           className="text-center mt-16 text-gray-500 text-sm"
         >
-          <p>
+          <p className="font-medium text-gray-600">
             PhishGuard AI - Multi-Agent Phishing Detection System
           </p>
           <p className="mt-1">

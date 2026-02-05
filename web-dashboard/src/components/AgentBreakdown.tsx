@@ -30,10 +30,10 @@ const agentIcons: Record<string, typeof LinkIcon> = {
 };
 
 const severityColors: Record<Signal["severity"], string> = {
-  low: "text-blue-400 bg-blue-500/10 border-blue-500/30",
-  medium: "text-yellow-400 bg-yellow-500/10 border-yellow-500/30",
-  high: "text-orange-400 bg-orange-500/10 border-orange-500/30",
-  critical: "text-red-400 bg-red-500/10 border-red-500/30",
+  low: "signal-low",
+  medium: "signal-medium",
+  high: "signal-high",
+  critical: "signal-critical",
 };
 
 const severityIcons: Record<Signal["severity"], typeof Info> = {
@@ -44,14 +44,14 @@ const severityIcons: Record<Signal["severity"], typeof Info> = {
 };
 
 function getRiskColor(score: number): string {
-  if (score <= 30) return "text-green-400";
-  if (score <= 70) return "text-yellow-400";
-  return "text-red-400";
+  if (score <= 30) return "text-green-700";
+  if (score <= 70) return "text-amber-600";
+  return "text-red-600";
 }
 
 function getRiskBg(score: number): string {
   if (score <= 30) return "bg-green-500";
-  if (score <= 70) return "bg-yellow-500";
+  if (score <= 70) return "bg-amber-500";
   return "bg-red-500";
 }
 
@@ -79,10 +79,10 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.3 }}
-      className="w-full max-w-3xl mx-auto mt-8"
+      className="w-full max-w-6xl mx-auto mt-8"
     >
-      <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-        <Brain className="w-5 h-5 text-purple-400" />
+      <h3 className="text-gray-900 font-semibold mb-4 flex items-center gap-2">
+        <Brain className="w-5 h-5 text-red-600" />
         Agent Analysis Details
       </h3>
 
@@ -100,11 +100,11 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
               {/* Agent Header */}
               <button
                 onClick={() => toggleAgent(result.agentId)}
-                className="w-full flex items-center gap-3 p-4 hover:bg-white/5 transition-colors"
+                className="w-full flex items-center gap-3 p-4 hover:bg-black/5 transition-colors"
               >
-                <Icon className="w-5 h-5 text-purple-400 flex-shrink-0" />
+                <Icon className="w-5 h-5 text-red-600 flex-shrink-0" />
                 <div className="flex-1 text-left">
-                  <span className="text-white font-medium">
+                  <span className="text-gray-900 font-medium">
                     {result.agentName}
                   </span>
                   <p className="text-gray-500 text-xs">
@@ -114,7 +114,7 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
 
                 {/* Score */}
                 <div className="flex items-center gap-3">
-                  <div className="w-24 h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
                     <motion.div
                       initial={{ width: 0 }}
                       animate={{ width: `${result.riskScore}%` }}
@@ -144,10 +144,10 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
-                    <div className="p-4 pt-0 space-y-4 border-t border-white/10">
+                    <div className="p-4 pt-0 space-y-4 border-t border-gray-200">
                       {/* Explanation */}
                       <div className="mt-4">
-                        <p className="text-gray-400 text-sm">
+                        <p className="text-gray-600 text-sm">
                           {result.explanation}
                         </p>
                       </div>
@@ -155,7 +155,7 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
                       {/* Signals */}
                       {result.signals.length > 0 && (
                         <div>
-                          <h4 className="text-white text-sm font-medium mb-2">
+                          <h4 className="text-gray-900 text-sm font-medium mb-2">
                             Detected Signals
                           </h4>
                           <div className="space-y-2">
@@ -164,7 +164,7 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
                               return (
                                 <div
                                   key={index}
-                                  className={`flex items-start gap-2 p-2 rounded-lg border ${severityColors[signal.severity]}`}
+                                  className={`flex items-start gap-2 p-3 rounded-lg border ${severityColors[signal.severity]}`}
                                 >
                                   <SeverityIcon className="w-4 h-4 mt-0.5 flex-shrink-0" />
                                   <div className="flex-1 min-w-0">
@@ -172,11 +172,11 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
                                       <span className="font-medium text-sm">
                                         {signal.type}
                                       </span>
-                                      <span className="text-xs opacity-75 uppercase">
+                                      <span className="text-xs opacity-75 uppercase font-semibold">
                                         {signal.severity}
                                       </span>
                                     </div>
-                                    <p className="text-sm opacity-75">
+                                    <p className="text-sm opacity-80 mt-0.5">
                                       {signal.description}
                                     </p>
                                   </div>
@@ -190,7 +190,7 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
                       {/* Confidence */}
                       <div className="flex items-center gap-2 text-sm text-gray-500">
                         <span>Confidence:</span>
-                        <span className="text-white">
+                        <span className="text-gray-900 font-semibold">
                           {Math.round(result.confidence * 100)}%
                         </span>
                       </div>

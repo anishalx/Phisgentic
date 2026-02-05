@@ -45,35 +45,35 @@ export function ScanningInterface({ onScan, status }: ScanningInterfaceProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="w-full max-w-3xl mx-auto"
+      className="w-full max-w-6xl mx-auto"
     >
       {/* Header */}
-      <div className="text-center mb-8">
+      <div className="text-center mb-10">
         <motion.div
-          className="inline-flex items-center justify-center mb-4"
-          animate={{ scale: isScanning ? [1, 1.1, 1] : 1 }}
+          className="inline-flex items-center justify-center mb-5"
+          animate={{ scale: isScanning ? [1, 1.05, 1] : 1 }}
           transition={{ duration: 2, repeat: isScanning ? Infinity : 0 }}
         >
-          <Shield className="w-16 h-16 text-purple-500" />
+          <Shield className="w-20 h-20 text-red-600" />
         </motion.div>
-        <h1 className="text-4xl font-bold gradient-text mb-2">PhishGuard AI</h1>
-        <p className="text-gray-400">
+        <h1 className="text-5xl font-bold gradient-text mb-3 tracking-tight">PhishGuard AI</h1>
+        <p className="text-gray-600 text-lg">
           Multi-Agent Phishing Detection System
         </p>
       </div>
 
       {/* Search Form */}
       <form onSubmit={handleSubmit} className="relative">
-        <div className="glass rounded-2xl p-2 transition-all duration-300 hover:border-purple-500/50">
+        <div className="glass rounded-2xl p-2 transition-all duration-300 hover:shadow-lg">
           <div className="flex items-center gap-4">
             <div className="flex-1 relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
               <input
                 type="text"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="Enter URL to analyze (e.g., https://example.com)"
-                className="w-full bg-transparent pl-12 pr-4 py-4 text-white placeholder-gray-500 text-lg rounded-xl focus:outline-none"
+                className="w-full bg-transparent pl-12 pr-4 py-4 text-gray-900 placeholder-gray-400 text-lg rounded-xl focus:outline-none"
                 disabled={isScanning}
               />
             </div>
@@ -104,7 +104,7 @@ export function ScanningInterface({ onScan, status }: ScanningInterfaceProps) {
           <motion.p
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-red-400 text-sm mt-2 pl-4"
+            className="text-red-600 text-sm mt-3 pl-4"
           >
             {error}
           </motion.p>
@@ -112,12 +112,12 @@ export function ScanningInterface({ onScan, status }: ScanningInterfaceProps) {
       </form>
 
       {/* Quick Test Links */}
-      <div className="mt-8">
-        <p className="text-gray-500 text-sm mb-3 text-center">Quick test URLs:</p>
-        <div className="flex flex-col gap-2">
+      <div className="mt-10">
+        <p className="text-gray-500 text-sm mb-4 text-center font-medium">Quick test URLs:</p>
+        <div className="flex flex-col gap-3">
           {/* Safe Sites Row */}
-          <div className="flex justify-center gap-3 flex-wrap">
-            <span className="text-green-500/70 text-xs uppercase tracking-wider self-center">Safe:</span>
+          <div className="flex justify-center items-center gap-3 flex-wrap">
+            <span className="text-green-700 text-xs font-semibold uppercase tracking-wider w-24 text-right">Safe:</span>
             <QuickTestButton 
               url="https://google.com" 
               label="google.com" 
@@ -142,8 +142,8 @@ export function ScanningInterface({ onScan, status }: ScanningInterfaceProps) {
           </div>
           
           {/* Suspicious Sites Row */}
-          <div className="flex justify-center gap-3 flex-wrap">
-            <span className="text-amber-500/70 text-xs uppercase tracking-wider self-center">Suspicious:</span>
+          <div className="flex justify-center items-center gap-3 flex-wrap">
+            <span className="text-amber-700 text-xs font-semibold uppercase tracking-wider w-24 text-right">Suspicious:</span>
             <QuickTestButton 
               url="https://paypal-secure-login.tk" 
               label="paypal-secure-login.tk" 
@@ -161,8 +161,8 @@ export function ScanningInterface({ onScan, status }: ScanningInterfaceProps) {
           </div>
           
           {/* Dangerous Sites Row */}
-          <div className="flex justify-center gap-3 flex-wrap">
-            <span className="text-red-500/70 text-xs uppercase tracking-wider self-center">Phishing:</span>
+          <div className="flex justify-center items-center gap-3 flex-wrap">
+            <span className="text-red-700 text-xs font-semibold uppercase tracking-wider w-24 text-right">Phishing:</span>
             <QuickTestButton 
               url="https://secure-login-facebook.ml/verify" 
               label="secure-login-facebook.ml" 
@@ -194,9 +194,9 @@ interface QuickTestButtonProps {
 
 function QuickTestButton({ url, label, type, onClick, disabled }: QuickTestButtonProps) {
   const typeStyles = {
-    safe: "border-green-500/30 text-green-400/70 hover:bg-green-500/10 hover:border-green-500/50",
-    warning: "border-amber-500/30 text-amber-400/70 hover:bg-amber-500/10 hover:border-amber-500/50",
-    danger: "border-red-500/30 text-red-400/70 hover:bg-red-500/10 hover:border-red-500/50",
+    safe: "bg-green-50 border-green-200 text-green-700 hover:bg-green-100 hover:border-green-300",
+    warning: "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100 hover:border-amber-300",
+    danger: "bg-red-50 border-red-200 text-red-700 hover:bg-red-100 hover:border-red-300",
   };
   
   return (
