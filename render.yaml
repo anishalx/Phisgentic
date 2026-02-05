@@ -26,7 +26,7 @@ services:
     region: oregon
     plan: free
     rootDir: web-dashboard
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
