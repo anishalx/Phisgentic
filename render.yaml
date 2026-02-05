@@ -1,0 +1,38 @@
+# Render Blueprint - Deploys both services automatically
+# See: https://render.com/docs/blueprint-spec
+
+services:
+  # Backend API Server
+  - type: web
+    name: phishguard-api
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: GROQ_API_KEY
+        sync: false  # You'll set this manually in Render dashboard
+
+  # Next.js Web Dashboard
+  - type: web
+    name: phishguard-dashboard
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: web-dashboard
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          name: phishguard-api
+          type: web
+          property: host

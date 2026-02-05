@@ -104,7 +104,7 @@ describe("DomainAgent", () => {
       const result = await agent.analyze("https://example.com");
 
       expect(result).toHaveProperty("agentId", "domainAgent");
-      expect(result).toHaveProperty("agentName", "Domain Reputation Agent");
+      expect(result).toHaveProperty("agentName", "Domain Intelligence Agent");
       expect(result).toHaveProperty("riskScore");
       expect(result).toHaveProperty("confidence");
       expect(result).toHaveProperty("signals");
