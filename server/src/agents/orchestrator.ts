@@ -19,7 +19,6 @@ export class Orchestrator {
   private contentAgent: ContentAgent;
   private heuristicAgent: HeuristicAgent;
   private testerAgent: TesterAgent;
-  private logs: AgentLog[] = [];
 
   constructor() {
     this.urlAgent = new UrlAgent();
@@ -34,7 +33,8 @@ export class Orchestrator {
     onLog?: (log: AgentLog) => void,
   ): Promise<OrchestratorResult> {
     const startTime = Date.now();
-    this.logs = [];
+    // Use local logs array per request to prevent race conditions
+    const logs: AgentLog[] = [];
 
     const addLog = (agentId: string, agentName: string, message: string, type: AgentLog["type"] = "info") => {
       const log: AgentLog = {
@@ -44,7 +44,7 @@ export class Orchestrator {
         timestamp: Date.now(),
         type,
       };
-      this.logs.push(log);
+      logs.push(log);
       if (onLog) {
         onLog(log);
       }
@@ -137,7 +137,7 @@ export class Orchestrator {
 
     return {
       verdict,
-      logs: this.logs,
+      logs,
     };
   }
 

@@ -2,15 +2,37 @@
 
 import express, { Request, Response } from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import { z } from "zod";
 import { CONFIG } from "./config/index.js";
 import { getOrchestrator } from "./agents/orchestrator.js";
+import { closeBrowser } from "./agents/tester-agent.js";
 import type { ScanRequest, ScanResponse, AgentLog } from "./types/index.js";
 
 const app = express();
 
-// Middleware
+// Security middleware
+app.use(helmet());
+
+// Rate limiting - 30 requests per minute per IP
+const limiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30,
+  message: { error: "Too many requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use("/api/scan", limiter);
+
+// CORS and JSON parsing
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
+
+// Input validation schema
+const scanRequestSchema = z.object({
+  url: z.string().url("Invalid URL format").max(2048, "URL too long"),
+});
 
 // Health check endpoint
 app.get("/api/health", (_req: Request, res: Response) => {
@@ -19,28 +41,20 @@ app.get("/api/health", (_req: Request, res: Response) => {
 
 // Main scan endpoint
 app.post("/api/scan", async (req: Request, res: Response) => {
-  const { url } = req.body as ScanRequest;
-
-  if (!url) {
+  // Validate input with Zod
+  const parseResult = scanRequestSchema.safeParse(req.body);
+  
+  if (!parseResult.success) {
+    const errorMessage = parseResult.error.issues[0]?.message || "Invalid request";
     res.status(400).json({
       success: false,
-      error: "URL is required",
+      error: errorMessage,
       logs: [],
     } as ScanResponse);
     return;
   }
 
-  // Validate URL format
-  try {
-    new URL(url);
-  } catch {
-    res.status(400).json({
-      success: false,
-      error: "Invalid URL format",
-      logs: [],
-    } as ScanResponse);
-    return;
-  }
+  const { url } = parseResult.data;
 
   console.log(`[API] Scanning URL: ${url}`);
 
@@ -67,16 +81,11 @@ app.post("/api/scan", async (req: Request, res: Response) => {
 app.get("/api/scan/stream", async (req: Request, res: Response) => {
   const url = req.query.url as string;
 
-  if (!url) {
-    res.status(400).json({ error: "URL is required" });
-    return;
-  }
-
-  // Validate URL format
-  try {
-    new URL(url);
-  } catch {
-    res.status(400).json({ error: "Invalid URL format" });
+  // Validate URL with Zod
+  const parseResult = scanRequestSchema.safeParse({ url });
+  
+  if (!parseResult.success) {
+    res.status(400).json({ error: parseResult.error.issues[0]?.message || "Invalid URL" });
     return;
   }
 
@@ -109,7 +118,7 @@ app.get("/api/scan/stream", async (req: Request, res: Response) => {
 });
 
 // Start server
-app.listen(CONFIG.PORT, () => {
+const server = app.listen(CONFIG.PORT, () => {
   console.log(`
 ╔════════════════════════════════════════════════════════╗
 ║                                                        ║
@@ -124,6 +133,32 @@ app.listen(CONFIG.PORT, () => {
 ║   - GET  /api/scan/stream?url=... - SSE stream scan    ║
 ║   - GET  /api/health   - Health check                  ║
 ║                                                        ║
+║   Security:                                            ║
+║   - Rate limiting: 30 req/min per IP                   ║
+║   - Helmet security headers enabled                    ║
+║   - Input validation with Zod                          ║
+║                                                        ║
 ╚════════════════════════════════════════════════════════╝
   `);
 });
+
+// Graceful shutdown
+async function shutdown() {
+  console.log("\n[API] Shutting down gracefully...");
+  
+  server.close(async () => {
+    console.log("[API] HTTP server closed");
+    await closeBrowser();
+    console.log("[API] Cleanup complete, exiting");
+    process.exit(0);
+  });
+  
+  // Force exit after 10 seconds
+  setTimeout(() => {
+    console.error("[API] Forced shutdown after timeout");
+    process.exit(1);
+  }, 10000);
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

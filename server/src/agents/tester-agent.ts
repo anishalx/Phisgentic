@@ -2,7 +2,7 @@
 
 import { BaseAgent } from "./base-agent.js";
 import type { AgentResult, Signal, BrowserTestResult } from "../types/index.js";
-import { chromium, Browser, Page } from "playwright";
+import { chromium, Browser, BrowserContext } from "playwright";
 import { CONFIG } from "../config/index.js";
 
 const SYSTEM_PROMPT = `You are a cybersecurity expert specializing in behavioral phishing detection.
@@ -19,6 +19,50 @@ Consider these risk factors:
 - Mismatched final URL vs original URL
 
 Provide a risk score (0-100), confidence (0-1), detected signals, and explanation.`;
+
+// Browser Singleton for resource efficiency
+let browserInstance: Browser | null = null;
+let browserInitPromise: Promise<Browser> | null = null;
+
+async function getBrowser(): Promise<Browser> {
+  if (browserInstance && browserInstance.isConnected()) {
+    return browserInstance;
+  }
+  
+  // Prevent multiple simultaneous initializations
+  if (browserInitPromise) {
+    return browserInitPromise;
+  }
+  
+  browserInitPromise = chromium.launch({
+    headless: CONFIG.PLAYWRIGHT.HEADLESS,
+  }).then((browser) => {
+    browserInstance = browser;
+    browserInitPromise = null;
+    
+    // Handle browser disconnection
+    browser.on("disconnected", () => {
+      browserInstance = null;
+    });
+    
+    console.log("[TesterAgent] Browser singleton initialized");
+    return browser;
+  }).catch((error) => {
+    browserInitPromise = null;
+    throw error;
+  });
+  
+  return browserInitPromise;
+}
+
+// Graceful shutdown helper
+export async function closeBrowser(): Promise<void> {
+  if (browserInstance) {
+    await browserInstance.close();
+    browserInstance = null;
+    console.log("[TesterAgent] Browser singleton closed");
+  }
+}
 
 export class TesterAgent extends BaseAgent {
   constructor() {
@@ -61,7 +105,7 @@ export class TesterAgent extends BaseAgent {
           [
             this.createSignal(
               "test_skipped",
-              "info",
+              "low",
               true,
               "Browser test skipped (browser unavailable)",
             ),
@@ -138,7 +182,7 @@ export class TesterAgent extends BaseAgent {
   }
 
   private async performBrowserTest(url: string): Promise<BrowserTestResult> {
-    let browser: Browser | null = null;
+    let context: BrowserContext | null = null;
     const redirectChain: string[] = [];
     const consoleErrors: string[] = [];
     const networkErrors: string[] = [];
@@ -150,11 +194,10 @@ export class TesterAgent extends BaseAgent {
     let screenshot = "";
 
     try {
-      browser = await chromium.launch({
-        headless: CONFIG.PLAYWRIGHT.HEADLESS,
-      });
-
-      const context = await browser.newContext({
+      // Use singleton browser and create a new context per request
+      const browser = await getBrowser();
+      
+      context = await browser.newContext({
         viewport: CONFIG.PLAYWRIGHT.VIEWPORT,
         userAgent:
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -256,8 +299,9 @@ export class TesterAgent extends BaseAgent {
         safetyWarning,
       };
     } finally {
-      if (browser) {
-        await browser.close();
+      // Close context to free resources (but keep browser running)
+      if (context) {
+        await context.close();
       }
     }
   }
