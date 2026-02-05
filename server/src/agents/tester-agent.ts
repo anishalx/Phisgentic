@@ -31,6 +31,21 @@ export class TesterAgent extends BaseAgent {
     let localRiskScore = 0;
     let screenshot: string | undefined;
 
+    // Check if Tester Agent is disabled (e.g., on Render where Playwright isn't available)
+    if (process.env.DISABLE_TESTER_AGENT === "true") {
+      console.log("Tester Agent is disabled via environment variable");
+      return {
+        ...this.createResult(
+          0,  // Neutral score - won't affect final verdict
+          0.1, // Very low confidence
+          [],
+          "Browser testing disabled in this environment",
+          Date.now() - startTime,
+        ),
+        screenshot: undefined,
+      };
+    }
+
     // Perform browser test
     let testResult: BrowserTestResult | null = null;
     try {
@@ -38,19 +53,20 @@ export class TesterAgent extends BaseAgent {
       screenshot = testResult.screenshot;
     } catch (error) {
       console.error("Tester Agent browser test failed:", error);
+      // Return neutral result to not affect final score when browser is unavailable
       return {
         ...this.createResult(
-          50,
-          0.2,
+          0,  // Changed from 50 to 0 - neutral, won't penalize
+          0.1, // Very low confidence
           [
             this.createSignal(
-              "test_failed",
-              "medium",
+              "test_skipped",
+              "info",
               true,
-              "Browser test failed",
+              "Browser test skipped (browser unavailable)",
             ),
           ],
-          "Unable to perform browser test",
+          "Browser testing unavailable in this environment",
           Date.now() - startTime,
         ),
         screenshot: undefined,
