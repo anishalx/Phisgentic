@@ -1,9 +1,10 @@
 // Tester Agent - Simulates user interaction and checks behavioral anomalies
 
 import { BaseAgent } from "./base-agent.js";
-import type { AgentResult, Signal, BrowserTestResult } from "../types/index.js";
+import type { AgentResult, Signal, BrowserTestResult, FormAnalysis, LogoDetectionResult } from "../types/index.js";
 import { chromium, Browser, BrowserContext } from "playwright";
 import { CONFIG } from "../config/index.js";
+import { getGroqClient } from "../api/groq-client.js";
 
 const SYSTEM_PROMPT = `You are a cybersecurity expert specializing in behavioral phishing detection.
 Analyze the browser test results to identify phishing indicators.
@@ -120,6 +121,18 @@ export class TesterAgent extends BaseAgent {
     // Analyze test results locally
     localRiskScore = this.analyzeTestResults(testResult, signals);
 
+    // Vision-based Logo Detection (runs in parallel with LLM analysis)
+    let logoDetectionPromise: Promise<LogoDetectionResult | null> = Promise.resolve(null);
+    
+    if (screenshot && process.env.DISABLE_VISION_DETECTION !== "true") {
+      const groqClient = getGroqClient();
+      logoDetectionPromise = groqClient.analyzeLogoInScreenshot(screenshot, testResult.finalUrl)
+        .catch((error) => {
+          console.error("[TesterAgent] Logo detection failed:", error);
+          return null;
+        });
+    }
+
     // Use LLM for deeper analysis
     try {
       const llmResult = await this.groqClient.analyzeForAgent(
@@ -148,15 +161,31 @@ export class TesterAgent extends BaseAgent {
 
       if (llmResult) {
         const llmSignals = (llmResult.signals as Signal[]) || [];
-        const allSignals = [...signals, ...llmSignals];
+        let allSignals = [...signals, ...llmSignals];
+        let finalScore = Math.round(localRiskScore * 0.4 + llmResult.riskScore * 0.6);
 
-        const combinedScore = Math.round(
-          localRiskScore * 0.4 + llmResult.riskScore * 0.6,
-        );
+        // Wait for logo detection result
+        const logoResult = await logoDetectionPromise;
+        
+        // Process logo detection - CRITICAL if brand mismatch detected
+        if (logoResult && logoResult.brandDetected && logoResult.isDomainMismatch) {
+          const logoSignal = this.createSignal(
+            "logo_domain_mismatch",
+            "critical",
+            `${logoResult.brandDetected} logo on unauthorized domain`,
+            `CRITICAL: ${logoResult.brandDetected} brand logo detected but domain is not legitimate (expected: ${logoResult.legitimateDomains.slice(0, 3).join(", ")})`,
+          );
+          allSignals.push(logoSignal);
+          
+          // Significant score boost for visual brand spoofing
+          finalScore = Math.max(finalScore, 85);
+          
+          console.log(`[TesterAgent] Logo detection ALERT: ${logoResult.brandDetected} on wrong domain`);
+        }
 
         return {
           ...this.createResult(
-            combinedScore,
+            finalScore,
             llmResult.confidence,
             allSignals,
             llmResult.explanation,
@@ -167,6 +196,21 @@ export class TesterAgent extends BaseAgent {
       }
     } catch (error) {
       console.error("Tester Agent LLM analysis failed:", error);
+    }
+
+    // Fallback: Still check logo detection even if LLM failed
+    const logoResult = await logoDetectionPromise;
+    
+    if (logoResult && logoResult.brandDetected && logoResult.isDomainMismatch) {
+      signals.push(
+        this.createSignal(
+          "logo_domain_mismatch",
+          "critical",
+          `${logoResult.brandDetected} logo on unauthorized domain`,
+          `CRITICAL: ${logoResult.brandDetected} brand logo detected but domain is not legitimate`,
+        ),
+      );
+      localRiskScore = Math.max(localRiskScore, 85);
     }
 
     return {
@@ -285,6 +329,81 @@ export class TesterAgent extends BaseAgent {
 
       const finalUrl = page.url();
 
+      // Analyze forms for cross-origin submission (Form Hijacking Detection)
+      let formAnalysis: FormAnalysis[] = [];
+      try {
+        formAnalysis = await page.evaluate((pageOrigin: string) => {
+          const forms = document.querySelectorAll("form");
+          const results: FormAnalysis[] = [];
+          
+          forms.forEach((form, index) => {
+            const action = form.getAttribute("action") || "";
+            const method = (form.getAttribute("method") || "GET").toUpperCase();
+            
+            // Get all input fields
+            const inputs = form.querySelectorAll("input, textarea, select");
+            const inputFields: string[] = [];
+            let hasPasswordField = false;
+            let hasCreditCardField = false;
+            
+            inputs.forEach((input) => {
+              const type = (input.getAttribute("type") || "text").toLowerCase();
+              const name = (input.getAttribute("name") || "").toLowerCase();
+              const autocomplete = (input.getAttribute("autocomplete") || "").toLowerCase();
+              
+              inputFields.push(type);
+              
+              if (type === "password") {
+                hasPasswordField = true;
+              }
+              
+              // Detect credit card fields by name, autocomplete, or pattern
+              if (
+                name.includes("card") || name.includes("cc-") || name.includes("credit") ||
+                autocomplete.includes("cc-") || 
+                type === "tel" && (name.includes("cvv") || name.includes("cvc"))
+              ) {
+                hasCreditCardField = true;
+              }
+            });
+            
+            // Determine action domain
+            let actionDomain = "";
+            let isCrossOrigin = false;
+            
+            try {
+              if (action && !action.startsWith("#") && !action.startsWith("javascript:")) {
+                const actionUrl = new URL(action, pageOrigin);
+                actionDomain = actionUrl.hostname.toLowerCase();
+                
+                const pageHost = new URL(pageOrigin).hostname.toLowerCase();
+                
+                // Normalize www prefix
+                const normalizeHost = (h: string) => h.replace(/^www\./, "");
+                isCrossOrigin = normalizeHost(actionDomain) !== normalizeHost(pageHost);
+              }
+            } catch {
+              // Invalid URL, skip
+            }
+            
+            results.push({
+              formIndex: index,
+              action,
+              actionDomain,
+              method,
+              hasPasswordField,
+              hasCreditCardField,
+              isCrossOrigin,
+              inputFields,
+            });
+          });
+          
+          return results;
+        }, finalUrl);
+      } catch {
+        // Ignore form analysis errors
+      }
+
       return {
         screenshot,
         finalUrl,
@@ -297,6 +416,7 @@ export class TesterAgent extends BaseAgent {
         networkErrors,
         loadTimeMs,
         safetyWarning,
+        formAnalysis,
       };
     } finally {
       // Close context to free resources (but keep browser running)
@@ -450,6 +570,48 @@ export class TesterAgent extends BaseAgent {
         ),
       );
       score += 10;
+    }
+
+    // Check for Form Hijacking (Cross-Origin Form Submission)
+    if (result.formAnalysis && result.formAnalysis.length > 0) {
+      for (const form of result.formAnalysis) {
+        // Critical: Password form submitting to different domain
+        if (form.isCrossOrigin && form.hasPasswordField) {
+          signals.push(
+            this.createSignal(
+              "cross_origin_password_form",
+              "critical",
+              `Form submits passwords to ${form.actionDomain}`,
+              "CRITICAL: Password form submits to different domain (Form Hijacking)",
+            ),
+          );
+          score += 50;
+        }
+        // Critical: Credit card form submitting to different domain
+        else if (form.isCrossOrigin && form.hasCreditCardField) {
+          signals.push(
+            this.createSignal(
+              "cross_origin_credential_form",
+              "critical",
+              `Form submits payment data to ${form.actionDomain}`,
+              "CRITICAL: Payment form submits to different domain (Form Hijacking)",
+            ),
+          );
+          score += 50;
+        }
+        // High: Any cross-origin form submission
+        else if (form.isCrossOrigin && form.method === "POST") {
+          signals.push(
+            this.createSignal(
+              "cross_origin_form",
+              "high",
+              `POST form submits to ${form.actionDomain}`,
+              "Form submits data to different domain",
+            ),
+          );
+          score += 20;
+        }
+      }
     }
 
     return Math.min(100, score);

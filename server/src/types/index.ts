@@ -72,9 +72,23 @@ export interface LinkData {
 }
 
 // Groq API types
+export interface GroqTextContent {
+  type: "text";
+  text: string;
+}
+
+export interface GroqImageContent {
+  type: "image_url";
+  image_url: {
+    url: string; // Base64 data URL or HTTP URL
+  };
+}
+
+export type GroqContentPart = GroqTextContent | GroqImageContent;
+
 export interface GroqMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | GroqContentPart[];
 }
 
 export interface GroqRequest {
@@ -107,6 +121,27 @@ export interface GroqResponse {
   };
 }
 
+// Form Hijacking Detection types
+export interface FormAnalysis {
+  formIndex: number;
+  action: string;
+  actionDomain: string;
+  method: string;
+  hasPasswordField: boolean;
+  hasCreditCardField: boolean;
+  isCrossOrigin: boolean;
+  inputFields: string[];
+}
+
+// Vision/Logo Detection types
+export interface LogoDetectionResult {
+  brandDetected: string | null;
+  confidence: number;
+  isDomainMismatch: boolean;
+  legitimateDomains: string[];
+  explanation: string;
+}
+
 // Tester Agent specific types
 export interface BrowserTestResult {
   screenshot: string; // Base64 encoded
@@ -120,4 +155,8 @@ export interface BrowserTestResult {
   networkErrors: string[];
   loadTimeMs: number;
   safetyWarning?: string;
+  // New: Form Hijacking Detection
+  formAnalysis: FormAnalysis[];
+  // New: Logo Detection
+  logoDetection?: LogoDetectionResult;
 }

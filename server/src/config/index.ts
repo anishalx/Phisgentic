@@ -11,6 +11,7 @@ export const CONFIG = {
   GROQ_API_URL: "https://api.groq.com/openai/v1/chat/completions",
   GROQ_API_KEY: process.env.GROQ_API_KEY || "",
   GROQ_MODEL: "llama-3.3-70b-versatile",
+  GROQ_VISION_MODEL: "llama-3.2-11b-vision-preview", // Vision-capable model for logo detection
 
   // Agent weights for final scoring (higher = more influence)
   AGENT_WEIGHTS: {
@@ -42,6 +43,10 @@ export const CONFIG = {
     "safety_warning",
     "sensitive_data_request",
     "brand_in_subdomain",
+    // New: Advanced Detection
+    "logo_domain_mismatch",      // Vision-detected brand logo on wrong domain
+    "cross_origin_password_form", // Form hijacking: password submitted to different domain
+    "cross_origin_credential_form", // Form hijacking: credentials to different domain
   ],
 
   // Analysis settings
@@ -189,6 +194,43 @@ export const CONFIG = {
     { name: "coinbase", domain: "coinbase.com" },
     { name: "binance", domain: "binance.com" },
   ],
+
+  // Brand to legitimate domains mapping for logo detection
+  // Maps brand names to all their legitimate domains
+  BRAND_DOMAINS: {
+    "microsoft": ["microsoft.com", "live.com", "outlook.com", "office.com", "office365.com", "azure.com", "windows.com", "xbox.com", "bing.com", "skype.com", "linkedin.com", "github.com"],
+    "google": ["google.com", "gmail.com", "youtube.com", "googleapis.com", "gstatic.com", "google.co.uk", "google.co.in", "android.com", "chromium.org"],
+    "apple": ["apple.com", "icloud.com", "itunes.com", "apple.co"],
+    "amazon": ["amazon.com", "amazon.co.uk", "amazon.de", "amazon.in", "aws.amazon.com", "primevideo.com", "audible.com", "twitch.tv"],
+    "facebook": ["facebook.com", "fb.com", "messenger.com", "meta.com", "instagram.com", "whatsapp.com", "oculus.com"],
+    "meta": ["meta.com", "facebook.com", "instagram.com", "whatsapp.com", "messenger.com", "oculus.com"],
+    "instagram": ["instagram.com", "facebook.com", "meta.com"],
+    "paypal": ["paypal.com", "paypal.me", "braintreepayments.com", "venmo.com"],
+    "netflix": ["netflix.com", "nflxvideo.net"],
+    "spotify": ["spotify.com", "spotifycdn.com"],
+    "twitter": ["twitter.com", "x.com", "t.co", "twimg.com"],
+    "x": ["x.com", "twitter.com", "t.co", "twimg.com"],
+    "linkedin": ["linkedin.com", "licdn.com"],
+    "chase": ["chase.com", "jpmorganchase.com", "jpmorgan.com"],
+    "bank of america": ["bankofamerica.com", "bofa.com", "mbna.com", "merrilledge.com"],
+    "wells fargo": ["wellsfargo.com", "wf.com"],
+    "citibank": ["citi.com", "citibank.com", "citicards.com"],
+    "usps": ["usps.com", "usps.gov"],
+    "fedex": ["fedex.com"],
+    "ups": ["ups.com"],
+    "dhl": ["dhl.com", "dhl.de"],
+    "walmart": ["walmart.com", "samsclub.com"],
+    "ebay": ["ebay.com", "ebay.co.uk", "ebay.de"],
+    "dropbox": ["dropbox.com", "dropboxstatic.com"],
+    "coinbase": ["coinbase.com", "coinbase.pro"],
+    "binance": ["binance.com", "binance.us"],
+    "steam": ["steampowered.com", "steamcommunity.com", "valve.com"],
+    "discord": ["discord.com", "discord.gg", "discordapp.com"],
+    "zoom": ["zoom.us", "zoom.com"],
+    "slack": ["slack.com"],
+    "adobe": ["adobe.com", "adobelogin.com", "behance.net", "creativecloud.com"],
+    "docusign": ["docusign.com", "docusign.net"],
+  } as Record<string, string[]>,
 
   // Urgency language patterns
   URGENCY_PATTERNS: [
