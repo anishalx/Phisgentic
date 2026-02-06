@@ -1,7 +1,11 @@
 // Configuration constants for the extension
 
 export const CONFIG = {
-  // Groq API Configuration
+  // Local Backend API Configuration
+  API_BASE_URL: "http://localhost:3001",
+  API_SCAN_ENDPOINT: "/api/scan",
+
+  // Groq API Configuration (kept for reference, not used in extension)
   GROQ_API_URL: "https://api.groq.com/openai/v1/chat/completions",
   GROQ_API_KEY: process.env.GROQ_API_KEY || "YOUR_GROQ_API_KEY_HERE",
   GROQ_MODEL: "llama-3.3-70b-versatile",

@@ -315,8 +315,12 @@ function getScoreClass(score: number): string {
 // Listen for messages from background
 chrome.runtime.onMessage.addListener(
   (message: Message, sender, sendResponse) => {
+    console.log("[PhishGuard AI] Content script received message:", message.type);
+    
     if (message.type === "SHOW_WARNING") {
-      showWarning(message.payload as FinalVerdict);
+      const verdict = message.payload as FinalVerdict;
+      console.log(`[PhishGuard AI] Showing warning overlay - Action: ${verdict.action}, Score: ${verdict.overallRiskScore}`);
+      showWarning(verdict);
       sendResponse({ received: true });
     }
     return true;
@@ -332,4 +336,4 @@ if (document.readyState === "loading") {
   setTimeout(sendPageContent, 500);
 }
 
-console.log("[PhishGuard AI] Content script loaded");
+console.log("[PhishGuard AI] Content script loaded on:", window.location.href);

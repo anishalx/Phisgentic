@@ -8,59 +8,126 @@
   </head>
   <body>
     <div class="popup-container">
+      <!-- Header -->
       <header class="header">
-        <div class="logo">
-          <span class="logo-icon">🛡️</span>
-          <span class="logo-text">PhishGuard AI</span>
+        <div class="brand">
+          <div class="logo-container">
+            <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2L3 7V12C3 17.55 6.84 22.74 12 24C17.16 22.74 21 17.55 21 12V7L12 2Z" fill="url(#shield-gradient)"/>
+              <path d="M10 15.5L7.5 13L6.5 14L10 17.5L18 9.5L17 8.5L10 15.5Z" fill="white"/>
+              <defs>
+                <linearGradient id="shield-gradient" x1="3" y1="2" x2="21" y2="24" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#10B981"/>
+                  <stop offset="1" stop-color="#059669"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-name">PhishGuard</span>
+            <span class="brand-badge">AI</span>
+          </div>
         </div>
-        <label class="toggle">
+        <label class="toggle-switch">
           <input type="checkbox" id="enabled-toggle" checked />
-          <span class="slider"></span>
+          <span class="toggle-track">
+            <span class="toggle-thumb"></span>
+          </span>
         </label>
       </header>
 
-      <div class="status-section" id="status-section">
-        <div class="status-card" id="status-card">
-          <div class="status-icon" id="status-icon">⏳</div>
-          <div class="status-text">
-            <div class="status-title" id="status-title">Analyzing...</div>
-            <div class="status-subtitle" id="status-subtitle">
-              Checking current page
+      <!-- Main Status Card -->
+      <div class="status-hero" id="status-hero">
+        <div class="status-glow" id="status-glow"></div>
+        <div class="status-content">
+          <div class="status-ring" id="status-ring">
+            <svg class="ring-svg" viewBox="0 0 120 120">
+              <circle class="ring-bg" cx="60" cy="60" r="52" />
+              <circle class="ring-progress" id="ring-progress" cx="60" cy="60" r="52" />
+            </svg>
+            <div class="status-score-display">
+              <span class="score-value" id="score-value">--</span>
+              <span class="score-label">Risk</span>
             </div>
           </div>
-          <div class="status-score" id="status-score">--</div>
+          <div class="status-info">
+            <h2 class="status-title" id="status-title">Analyzing...</h2>
+            <p class="status-subtitle" id="status-subtitle">Scanning page for threats</p>
+            <div class="status-url" id="status-url"></div>
+          </div>
         </div>
       </div>
 
-      <div class="details-section" id="details-section" style="display: none">
-        <h3 class="section-title">Agent Analysis</h3>
-        <div class="agents-list" id="agents-list"></div>
+      <!-- Agent Analysis Section -->
+      <div class="section agents-section" id="agents-section" style="display: none">
+        <div class="section-header">
+          <h3 class="section-title">
+            <svg class="section-icon" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"/>
+            </svg>
+            AI Agent Analysis
+          </h3>
+        </div>
+        <div class="agents-grid" id="agents-list"></div>
       </div>
 
-      <div class="signals-section" id="signals-section" style="display: none">
-        <h3 class="section-title">Detected Signals</h3>
+      <!-- Signals Section -->
+      <div class="section signals-section" id="signals-section" style="display: none">
+        <div class="section-header">
+          <h3 class="section-title">
+            <svg class="section-icon" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+            </svg>
+            Detected Signals
+          </h3>
+        </div>
         <div class="signals-list" id="signals-list"></div>
       </div>
 
-      <div class="actions-section">
-        <button class="action-btn" id="whitelist-btn">
-          <span>✓</span> Whitelist Domain
+      <!-- Quick Actions -->
+      <div class="actions-bar">
+        <button class="action-btn action-whitelist" id="whitelist-btn">
+          <svg viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+          </svg>
+          Trust Site
         </button>
-        <button class="action-btn" id="report-btn">
-          <span>🚩</span> Report False Positive
+        <button class="action-btn action-report" id="report-btn">
+          <svg viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M3 6a3 3 0 013-3h10a1 1 0 01.8 1.6L14.25 8l2.55 3.4A1 1 0 0116 13H6a1 1 0 00-1 1v3a1 1 0 11-2 0V6z" clip-rule="evenodd"/>
+          </svg>
+          Report
+        </button>
+        <button class="action-btn action-history" id="history-btn">
+          <svg viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
+          </svg>
+          History
         </button>
       </div>
 
-      <div class="history-section">
-        <h3 class="section-title">Recent Scans</h3>
+      <!-- History Panel (hidden by default) -->
+      <div class="history-panel" id="history-panel" style="display: none">
+        <div class="section-header">
+          <h3 class="section-title">
+            <svg class="section-icon" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
+            </svg>
+            Recent Scans
+          </h3>
+        </div>
         <div class="history-list" id="history-list">
           <div class="history-empty">No recent scans</div>
         </div>
       </div>
 
+      <!-- Footer -->
       <footer class="footer">
-        <span>Powered by Groq AI</span>
-        <a href="#" id="settings-link">Settings</a>
+        <div class="footer-left">
+          <span class="footer-powered">Powered by</span>
+          <span class="footer-brand">Groq LLM</span>
+        </div>
+        <div class="footer-version">v1.0.0</div>
       </footer>
     </div>
 
