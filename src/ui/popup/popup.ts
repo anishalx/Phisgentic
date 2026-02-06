@@ -62,8 +62,11 @@ async function initialize() {
       return;
     }
 
-    // Request status from background
-    const response = await chrome.runtime.sendMessage({ type: "GET_STATUS" });
+    // Request status from background (include tabId since popup messages don't have sender.tab)
+    const response = await chrome.runtime.sendMessage({ 
+      type: "GET_STATUS",
+      payload: { tabId: tab.id }
+    });
 
     if (response?.result) {
       currentVerdict = response.result;

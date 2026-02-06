@@ -115,11 +115,15 @@ chrome.runtime.onMessage.addListener(
         break;
 
       case "GET_STATUS":
-        if (tabId) {
-          const result = analysisResults.get(tabId);
-          const pending = pendingAnalyses.has(tabId);
+        // Get tabId from sender.tab (content script) or from payload (popup)
+        const statusTabId = tabId || (message.payload as { tabId?: number })?.tabId;
+        if (statusTabId) {
+          const result = analysisResults.get(statusTabId);
+          const pending = pendingAnalyses.has(statusTabId);
+          console.log(`[PhishGuard AI] GET_STATUS for tab ${statusTabId}:`, { result: !!result, pending });
           sendResponse({ result, pending });
         } else {
+          console.log("[PhishGuard AI] GET_STATUS: No tabId provided");
           sendResponse({ result: null, pending: false });
         }
         break;
@@ -173,14 +177,19 @@ async function analyzeUrlViaAPI(
 
     const data = await response.json();
 
+    console.log("[PhishGuard AI] Raw API response:", JSON.stringify(data, null, 2));
+
+    // Extract verdict from nested structure (API returns { success, verdict, logs })
+    const apiVerdict = data.verdict || data;
+
     // Map API response to FinalVerdict format
     const verdict: FinalVerdict = {
-      url: data.url || url,
-      overallRiskScore: data.overallRiskScore ?? data.riskScore ?? 0,
-      confidence: data.confidence ?? 0.5,
-      action: mapRiskToAction(data.overallRiskScore ?? data.riskScore ?? 0),
-      summary: data.summary || data.explanation || "Analysis complete",
-      agentResults: data.agentResults || data.agents || [],
+      url: apiVerdict.url || url,
+      overallRiskScore: apiVerdict.overallRiskScore ?? apiVerdict.riskScore ?? 0,
+      confidence: apiVerdict.confidence ?? 0.5,
+      action: apiVerdict.action || mapRiskToAction(apiVerdict.overallRiskScore ?? apiVerdict.riskScore ?? 0),
+      summary: apiVerdict.summary || apiVerdict.explanation || "Analysis complete",
+      agentResults: apiVerdict.agentResults || apiVerdict.agents || [],
       timestamp: Date.now(),
     };
 
