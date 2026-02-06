@@ -79,14 +79,14 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.3 }}
-      className="w-full max-w-6xl mx-auto mt-8"
+      className="w-full max-w-6xl mx-auto mt-6 sm:mt-8 px-4 sm:px-6"
     >
-      <h3 className="text-gray-900 font-semibold mb-4 flex items-center gap-2">
-        <Brain className="w-5 h-5 text-red-600" />
+      <h3 className="text-gray-900 font-semibold text-sm sm:text-base mb-3 sm:mb-4 flex items-center gap-2">
+        <Brain className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" />
         Agent Analysis Details
       </h3>
 
-      <div className="space-y-3">
+      <div className="space-y-2 sm:space-y-3">
         {results.map((result) => {
           const isExpanded = expandedAgents.has(result.agentId);
           const Icon = agentIcons[result.agentId] || Brain;
@@ -100,20 +100,34 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
               {/* Agent Header */}
               <button
                 onClick={() => toggleAgent(result.agentId)}
-                className="w-full flex items-center gap-3 p-4 hover:bg-black/5 transition-colors"
+                className="w-full flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 p-3 sm:p-4 hover:bg-black/5 transition-colors"
               >
-                <Icon className="w-5 h-5 text-red-600 flex-shrink-0" />
-                <div className="flex-1 text-left">
-                  <span className="text-gray-900 font-medium">
-                    {result.agentName}
-                  </span>
-                  <p className="text-gray-500 text-xs">
-                    {result.signals.length} signals • {result.executionTimeMs}ms
-                  </p>
+                <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                  <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-red-600 flex-shrink-0" />
+                  <div className="flex-1 text-left">
+                    <span className="text-gray-900 font-medium text-sm sm:text-base">
+                      {result.agentName}
+                    </span>
+                    <p className="text-gray-500 text-[10px] sm:text-xs">
+                      {result.signals.length} signals • {result.executionTimeMs}ms
+                    </p>
+                  </div>
+                  
+                  {/* Mobile: Show score inline with name */}
+                  <div className="flex sm:hidden items-center gap-2">
+                    <span className={`text-base font-bold ${getRiskColor(result.riskScore)}`}>
+                      {result.riskScore}
+                    </span>
+                    {isExpanded ? (
+                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-gray-400" />
+                    )}
+                  </div>
                 </div>
 
-                {/* Score */}
-                <div className="flex items-center gap-3">
+                {/* Desktop: Score bar and chevron */}
+                <div className="hidden sm:flex items-center gap-3">
                   <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
                     <motion.div
                       initial={{ width: 0 }}
@@ -125,13 +139,24 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
                   <span className={`text-lg font-bold ${getRiskColor(result.riskScore)}`}>
                     {result.riskScore}
                   </span>
+                  {isExpanded ? (
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                  ) : (
+                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                  )}
                 </div>
-
-                {isExpanded ? (
-                  <ChevronDown className="w-5 h-5 text-gray-400" />
-                ) : (
-                  <ChevronRight className="w-5 h-5 text-gray-400" />
-                )}
+                
+                {/* Mobile: Progress bar below */}
+                <div className="sm:hidden w-full">
+                  <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${result.riskScore}%` }}
+                      transition={{ duration: 0.5 }}
+                      className={`h-full rounded-full ${getRiskBg(result.riskScore)}`}
+                    />
+                  </div>
+                </div>
               </button>
 
               {/* Expanded Content */}
@@ -144,10 +169,10 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
-                    <div className="p-4 pt-0 space-y-4 border-t border-gray-200">
+                    <div className="p-3 sm:p-4 pt-0 space-y-3 sm:space-y-4 border-t border-gray-200">
                       {/* Explanation */}
-                      <div className="mt-4">
-                        <p className="text-gray-600 text-sm">
+                      <div className="mt-3 sm:mt-4">
+                        <p className="text-gray-600 text-xs sm:text-sm">
                           {result.explanation}
                         </p>
                       </div>
@@ -155,28 +180,28 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
                       {/* Signals */}
                       {result.signals.length > 0 && (
                         <div>
-                          <h4 className="text-gray-900 text-sm font-medium mb-2">
+                          <h4 className="text-gray-900 text-xs sm:text-sm font-medium mb-2">
                             Detected Signals
                           </h4>
-                          <div className="space-y-2">
+                          <div className="space-y-1.5 sm:space-y-2">
                             {result.signals.map((signal, index) => {
                               const SeverityIcon = severityIcons[signal.severity];
                               return (
                                 <div
                                   key={index}
-                                  className={`flex items-start gap-2 p-3 rounded-lg border ${severityColors[signal.severity]}`}
+                                  className={`flex items-start gap-2 p-2 sm:p-3 rounded-lg border ${severityColors[signal.severity]}`}
                                 >
-                                  <SeverityIcon className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                                  <SeverityIcon className="w-3 h-3 sm:w-4 sm:h-4 mt-0.5 flex-shrink-0" />
                                   <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-medium text-sm">
+                                    <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+                                      <span className="font-medium text-xs sm:text-sm">
                                         {signal.type}
                                       </span>
-                                      <span className="text-xs opacity-75 uppercase font-semibold">
+                                      <span className="text-[10px] sm:text-xs opacity-75 uppercase font-semibold">
                                         {signal.severity}
                                       </span>
                                     </div>
-                                    <p className="text-sm opacity-80 mt-0.5">
+                                    <p className="text-xs sm:text-sm opacity-80 mt-0.5 break-words">
                                       {signal.description}
                                     </p>
                                   </div>
@@ -188,7 +213,7 @@ export function AgentBreakdown({ results }: AgentBreakdownProps) {
                       )}
 
                       {/* Confidence */}
-                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-500">
                         <span>Confidence:</span>
                         <span className="text-gray-900 font-semibold">
                           {Math.round(result.confidence * 100)}%

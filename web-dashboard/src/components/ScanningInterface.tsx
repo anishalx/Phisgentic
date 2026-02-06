@@ -45,19 +45,19 @@ export function ScanningInterface({ onScan, status }: ScanningInterfaceProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="w-full max-w-6xl mx-auto"
+      className="w-full max-w-6xl mx-auto px-4 sm:px-6"
     >
       {/* Header */}
-      <div className="text-center mb-10">
+      <div className="text-center mb-6 sm:mb-10">
         <motion.div
-          className="inline-flex items-center justify-center mb-5"
+          className="inline-flex items-center justify-center mb-4 sm:mb-5"
           animate={{ scale: isScanning ? [1, 1.05, 1] : 1 }}
           transition={{ duration: 2, repeat: isScanning ? Infinity : 0 }}
         >
-          <Shield className="w-20 h-20 text-red-600" />
+          <Shield className="w-14 h-14 sm:w-20 sm:h-20 text-red-600" />
         </motion.div>
-        <h1 className="text-5xl font-bold gradient-text mb-3 tracking-tight">PhishGuard AI</h1>
-        <p className="text-gray-600 text-lg">
+        <h1 className="text-3xl sm:text-5xl font-bold gradient-text mb-2 sm:mb-3 tracking-tight">PhishGuard AI</h1>
+        <p className="text-gray-600 text-base sm:text-lg">
           Multi-Agent Phishing Detection System
         </p>
       </div>
@@ -65,22 +65,22 @@ export function ScanningInterface({ onScan, status }: ScanningInterfaceProps) {
       {/* Search Form */}
       <form onSubmit={handleSubmit} className="relative">
         <div className="glass rounded-2xl p-2 transition-all duration-300 hover:shadow-lg">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
               <input
                 type="text"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="Enter URL to analyze (e.g., https://example.com)"
-                className="w-full bg-transparent pl-12 pr-4 py-4 text-gray-900 placeholder-gray-400 text-lg rounded-xl focus:outline-none"
+                placeholder="Enter URL to analyze..."
+                className="w-full bg-transparent pl-12 pr-4 py-3 sm:py-4 text-gray-900 placeholder-gray-400 text-base sm:text-lg rounded-xl focus:outline-none"
                 disabled={isScanning}
               />
             </div>
             <motion.button
               type="submit"
               disabled={isScanning || !url.trim()}
-              className="btn-primary px-8 py-4 rounded-xl font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="btn-primary w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 rounded-xl font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
@@ -112,71 +112,77 @@ export function ScanningInterface({ onScan, status }: ScanningInterfaceProps) {
       </form>
 
       {/* Quick Test Links */}
-      <div className="mt-10">
-        <p className="text-gray-500 text-sm mb-4 text-center font-medium">Quick test URLs:</p>
-        <div className="flex flex-col gap-3">
+      <div className="mt-6 sm:mt-10">
+        <p className="text-gray-500 text-sm mb-3 sm:mb-4 text-center font-medium">Quick test URLs:</p>
+        <div className="flex flex-col gap-2 sm:gap-3">
           {/* Safe Sites Row */}
-          <div className="flex justify-center items-center gap-3 flex-wrap">
-            <span className="text-green-700 text-xs font-semibold uppercase tracking-wider w-24 text-right">Safe:</span>
-            <QuickTestButton 
-              url="https://google.com" 
-              label="google.com" 
-              type="safe"
-              onClick={setUrl}
-              disabled={isScanning}
-            />
-            <QuickTestButton 
-              url="https://github.com" 
-              label="github.com" 
-              type="safe"
-              onClick={setUrl}
-              disabled={isScanning}
-            />
-            <QuickTestButton 
-              url="https://microsoft.com" 
-              label="microsoft.com" 
-              type="safe"
-              onClick={setUrl}
-              disabled={isScanning}
-            />
+          <div className="flex flex-col sm:flex-row justify-center items-center gap-2 sm:gap-3">
+            <span className="text-green-700 text-xs font-semibold uppercase tracking-wider sm:w-24 sm:text-right">Safe:</span>
+            <div className="flex flex-wrap justify-center gap-2">
+              <QuickTestButton 
+                url="https://google.com" 
+                label="google.com" 
+                type="safe"
+                onClick={setUrl}
+                disabled={isScanning}
+              />
+              <QuickTestButton 
+                url="https://github.com" 
+                label="github.com" 
+                type="safe"
+                onClick={setUrl}
+                disabled={isScanning}
+              />
+              <QuickTestButton 
+                url="https://microsoft.com" 
+                label="microsoft.com" 
+                type="safe"
+                onClick={setUrl}
+                disabled={isScanning}
+              />
+            </div>
           </div>
           
           {/* Suspicious Sites Row */}
-          <div className="flex justify-center items-center gap-3 flex-wrap">
-            <span className="text-amber-700 text-xs font-semibold uppercase tracking-wider w-24 text-right">Suspicious:</span>
-            <QuickTestButton 
-              url="https://paypal-secure-login.tk" 
-              label="paypal-secure-login.tk" 
-              type="warning"
-              onClick={setUrl}
-              disabled={isScanning}
-            />
-            <QuickTestButton 
-              url="https://appleid-verify.000webhostapp.com" 
-              label="appleid-verify.000webhostapp.com" 
-              type="warning"
-              onClick={setUrl}
-              disabled={isScanning}
-            />
+          <div className="flex flex-col sm:flex-row justify-center items-center gap-2 sm:gap-3">
+            <span className="text-amber-700 text-xs font-semibold uppercase tracking-wider sm:w-24 sm:text-right">Suspicious:</span>
+            <div className="flex flex-wrap justify-center gap-2">
+              <QuickTestButton 
+                url="https://paypal-secure-login.tk" 
+                label="paypal-secure-login.tk" 
+                type="warning"
+                onClick={setUrl}
+                disabled={isScanning}
+              />
+              <QuickTestButton 
+                url="https://appleid-verify.000webhostapp.com" 
+                label="appleid-verify..." 
+                type="warning"
+                onClick={setUrl}
+                disabled={isScanning}
+              />
+            </div>
           </div>
           
           {/* Dangerous Sites Row */}
-          <div className="flex justify-center items-center gap-3 flex-wrap">
-            <span className="text-red-700 text-xs font-semibold uppercase tracking-wider w-24 text-right">Phishing:</span>
-            <QuickTestButton 
-              url="https://secure-login-facebook.ml/verify" 
-              label="secure-login-facebook.ml" 
-              type="danger"
-              onClick={setUrl}
-              disabled={isScanning}
-            />
-            <QuickTestButton 
-              url="https://netflix-billing-update.xyz" 
-              label="netflix-billing-update.xyz" 
-              type="danger"
-              onClick={setUrl}
-              disabled={isScanning}
-            />
+          <div className="flex flex-col sm:flex-row justify-center items-center gap-2 sm:gap-3">
+            <span className="text-red-700 text-xs font-semibold uppercase tracking-wider sm:w-24 sm:text-right">Phishing:</span>
+            <div className="flex flex-wrap justify-center gap-2">
+              <QuickTestButton 
+                url="https://secure-login-facebook.ml/verify" 
+                label="secure-login-facebook.ml" 
+                type="danger"
+                onClick={setUrl}
+                disabled={isScanning}
+              />
+              <QuickTestButton 
+                url="https://netflix-billing-update.xyz" 
+                label="netflix-billing-update.xyz" 
+                type="danger"
+                onClick={setUrl}
+                disabled={isScanning}
+              />
+            </div>
           </div>
         </div>
       </div>
