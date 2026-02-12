@@ -70,7 +70,7 @@ export class TesterAgent extends BaseAgent {
     super("testerAgent", "Tester Agent", SYSTEM_PROMPT);
   }
 
-  async analyze(url: string): Promise<AgentResult & { screenshot?: string }> {
+  async analyze(url: string, externalPage?: import("playwright").Page): Promise<AgentResult & { screenshot?: string }> {
     const startTime = Date.now();
     const signals: Signal[] = [];
     let localRiskScore = 0;
@@ -94,7 +94,7 @@ export class TesterAgent extends BaseAgent {
     // Perform browser test
     let testResult: BrowserTestResult | null = null;
     try {
-      testResult = await this.performBrowserTest(url);
+      testResult = await this.performBrowserTest(url, externalPage);
       screenshot = testResult.screenshot;
     } catch (error) {
       console.error("Tester Agent browser test failed:", error);
@@ -225,7 +225,12 @@ export class TesterAgent extends BaseAgent {
     };
   }
 
-  private async performBrowserTest(url: string): Promise<BrowserTestResult> {
+  private async performBrowserTest(url: string, externalPage?: import("playwright").Page): Promise<BrowserTestResult> {
+    // If an external page is provided (e.g., from Stagehand), use it directly
+    if (externalPage) {
+      return this.performTestOnPage(externalPage, url);
+    }
+
     let context: BrowserContext | null = null;
     const redirectChain: string[] = [];
     const consoleErrors: string[] = [];
@@ -424,6 +429,132 @@ export class TesterAgent extends BaseAgent {
         await context.close();
       }
     }
+  }
+
+  /**
+   * Perform browser test using an existing external Page (e.g., from Stagehand).
+   * Does NOT navigate - assumes the page is already on the target URL.
+   */
+  private async performTestOnPage(page: import("playwright").Page, url: string): Promise<BrowserTestResult> {
+    const consoleErrors: string[] = [];
+    const networkErrors: string[] = [];
+    let hasOverlays = false;
+    let screenshot = "";
+
+    const startTime = Date.now();
+
+    // Capture console errors from this point
+    const onConsoleError = (msg: import("playwright").ConsoleMessage) => {
+      if (msg.type() === "error") {
+        consoleErrors.push(msg.text());
+      }
+    };
+    page.on("console", onConsoleError);
+
+    // Check for overlays
+    try {
+      hasOverlays = await page.evaluate(() => {
+        const overlays = document.querySelectorAll(
+          '[class*="modal"], [class*="popup"], [class*="overlay"], [role="dialog"]',
+        );
+        return overlays.length > 0;
+      });
+    } catch {
+      // Ignore evaluation errors
+    }
+
+    // Take screenshot
+    try {
+      const screenshotBuffer = await page.screenshot({
+        type: "jpeg",
+        quality: 70,
+      });
+      screenshot = screenshotBuffer.toString("base64");
+    } catch {
+      // Ignore screenshot errors
+    }
+
+    const finalUrl = page.url();
+    const loadTimeMs = Date.now() - startTime;
+
+    // Analyze forms for cross-origin submission
+    let formAnalysis: FormAnalysis[] = [];
+    try {
+      formAnalysis = await page.evaluate((pageOrigin: string) => {
+        const forms = document.querySelectorAll("form");
+        const results: FormAnalysis[] = [];
+
+        forms.forEach((form, index) => {
+          const action = form.getAttribute("action") || "";
+          const method = (form.getAttribute("method") || "GET").toUpperCase();
+          const inputs = form.querySelectorAll("input, textarea, select");
+          const inputFields: string[] = [];
+          let hasPasswordField = false;
+          let hasCreditCardField = false;
+
+          inputs.forEach((input) => {
+            const type = (input.getAttribute("type") || "text").toLowerCase();
+            const name = (input.getAttribute("name") || "").toLowerCase();
+            const autocomplete = (input.getAttribute("autocomplete") || "").toLowerCase();
+            inputFields.push(type);
+            if (type === "password") hasPasswordField = true;
+            if (
+              name.includes("card") || name.includes("cc-") || name.includes("credit") ||
+              autocomplete.includes("cc-") ||
+              type === "tel" && (name.includes("cvv") || name.includes("cvc"))
+            ) {
+              hasCreditCardField = true;
+            }
+          });
+
+          let actionDomain = "";
+          let isCrossOrigin = false;
+          try {
+            if (action && !action.startsWith("#") && !action.startsWith("javascript:")) {
+              const actionUrl = new URL(action, pageOrigin);
+              actionDomain = actionUrl.hostname.toLowerCase();
+              const pageHost = new URL(pageOrigin).hostname.toLowerCase();
+              const normalizeHost = (h: string) => h.replace(/^www\./, "");
+              isCrossOrigin = normalizeHost(actionDomain) !== normalizeHost(pageHost);
+            }
+          } catch {
+            // Invalid URL
+          }
+
+          results.push({
+            formIndex: index,
+            action,
+            actionDomain,
+            method,
+            hasPasswordField,
+            hasCreditCardField,
+            isCrossOrigin,
+            inputFields,
+          });
+        });
+
+        return results;
+      }, finalUrl);
+    } catch {
+      // Ignore form analysis errors
+    }
+
+    // Clean up listener
+    page.off("console", onConsoleError);
+
+    return {
+      screenshot,
+      finalUrl,
+      redirectChain: [], // External page - redirect chain not tracked
+      hasPopups: false,  // External page - popups managed by Stagehand
+      hasOverlays,
+      downloadAttempted: false, // External page - downloads managed by Stagehand
+      permissionRequests: [],
+      consoleErrors,
+      networkErrors,
+      loadTimeMs,
+      formAnalysis,
+    };
   }
 
   private analyzeTestResults(

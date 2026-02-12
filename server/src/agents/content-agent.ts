@@ -30,6 +30,8 @@ Provide a risk score (0-100), confidence (0-1), detected signals, and explanatio
 interface ContentAnalysisInput {
   url: string;
   pageContent?: PageContent;
+  /** Optional: Provide an existing Playwright Page to reuse (e.g., from Stagehand plugin) */
+  externalPage?: Page;
 }
 
 interface ExtendedPageContent extends PageContent {
@@ -51,13 +53,13 @@ export class ContentAgent extends BaseAgent {
     const signals: Signal[] = [];
     let localRiskScore = 0;
 
-    const { url } = input;
+    const { url, externalPage } = input;
     let pageContent: ExtendedPageContent | null = input.pageContent || null;
 
     // Fetch page content if not provided
     if (!pageContent) {
       try {
-        pageContent = await this.fetchPageContent(url);
+        pageContent = await this.fetchPageContent(url, externalPage);
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.error("Failed to fetch page content:", errorMsg);
@@ -199,7 +201,13 @@ export class ContentAgent extends BaseAgent {
     );
   }
 
-  private async fetchPageContent(url: string): Promise<ExtendedPageContent> {
+  private async fetchPageContent(url: string, externalPage?: Page): Promise<ExtendedPageContent> {
+    // If an external page is provided (e.g., from Stagehand), use it directly
+    if (externalPage) {
+      return this.extractContentFromPage(externalPage, url);
+    }
+
+    // Otherwise, launch our own browser
     let browser: Browser | null = null;
 
     try {
@@ -224,8 +232,27 @@ export class ContentAgent extends BaseAgent {
         navigationError = error instanceof Error ? error.message : String(error);
       }
 
-      // Extract page content
-      const content = await page.evaluate((): ExtendedPageContent => {
+      const content = await this.extractContentFromPage(page, url);
+
+      if (navigationError) {
+        content.isBlocked = true;
+        content.blockReason = navigationError;
+      }
+
+      return content;
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+    }
+  }
+
+  /**
+   * Extract page content from a Playwright Page instance.
+   * Shared between self-managed browser and external page paths.
+   */
+  private async extractContentFromPage(page: Page, url: string): Promise<ExtendedPageContent> {
+    const content = await page.evaluate((): ExtendedPageContent => {
         const bodyText = document.body?.innerText?.toLowerCase() || "";
         const title = document.title?.toLowerCase() || "";
         
@@ -297,17 +324,7 @@ export class ContentAgent extends BaseAgent {
         };
       });
 
-      if (navigationError) {
-        content.isBlocked = true;
-        content.blockReason = navigationError;
-      }
-
-      return content;
-    } finally {
-      if (browser) {
-        await browser.close();
-      }
-    }
+    return content;
   }
 
   private performAggressiveAnalysis(

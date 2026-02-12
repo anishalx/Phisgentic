@@ -7,6 +7,7 @@ import { HeuristicAgent } from "./heuristic-agent.js";
 import { TesterAgent } from "./tester-agent.js";
 import type { AgentResult, PageContent, FinalVerdict, AgentLog, Signal } from "../types/index.js";
 import { CONFIG } from "../config/index.js";
+import type { Page } from "playwright";
 
 export interface OrchestratorResult {
   verdict: FinalVerdict;
@@ -31,6 +32,8 @@ export class Orchestrator {
   async analyzeUrl(
     url: string,
     onLog?: (log: AgentLog) => void,
+    /** Optional: Provide an existing Playwright Page to reuse (e.g., from Stagehand plugin) */
+    externalPage?: Page,
   ): Promise<OrchestratorResult> {
     const startTime = Date.now();
     // Use local logs array per request to prevent race conditions
@@ -60,7 +63,7 @@ export class Orchestrator {
 
     try {
       testerResult = await this.withTimeout(
-        this.testerAgent.analyze(url),
+        this.testerAgent.analyze(url, externalPage),
         CONFIG.ANALYSIS.TIMEOUT_MS,
       );
       if (testerResult) {
@@ -83,7 +86,7 @@ export class Orchestrator {
     const agentPromises = [
       this.urlAgent.analyze(url),
       this.domainAgent.analyze(url),
-      this.contentAgent.analyze({ url, pageContent }),
+      this.contentAgent.analyze({ url, pageContent, externalPage }),
       this.heuristicAgent.analyze({ url, pageContent }),
     ];
 
