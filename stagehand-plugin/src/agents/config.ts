@@ -28,7 +28,7 @@ export const SUSPICIOUS_TLDS = [
 
 export const SUSPICIOUS_HOSTING_PATTERNS = [
   "000webhostapp.com", "weebly.com", "wix.com", "blogspot.com",
-  "wordpress.com", "sites.google.com", "forms.gle", "docs.google.com/forms",
+  "wordpress.com", "sites.google.com", "forms.gle", "docs.google.com",  // M12 fix: removed /forms (never matches hostname)
   "netlify.app", "vercel.app", "herokuapp.com", "glitch.me",
   "repl.co", "github.io", "gitlab.io", "web.app",
   "firebaseapp.com", "azurewebsites.net", "cloudfront.net",
@@ -103,18 +103,16 @@ export const URGENCY_PATTERNS = [
 
 export const CRITICAL_VETO_SIGNALS = [
   "blocklist_match",
-  "known_phishing_domain",
+  // M5 fix: removed "known_phishing_domain" — no agent emits this
   "brand_impersonation",
   "typosquatting",
   "homograph",
-  "ip_address",
+  // M10 fix: removed "ip_address" — too aggressive, blocks legitimate internal tools
   "external_form_action",
   "title_brand_mismatch",
-  "download_attempted",
-  "safety_warning",
+  // M5 fix: removed "download_attempted", "safety_warning", "logo_domain_mismatch" — no agent emits these
   "sensitive_data_request",
   "brand_in_subdomain",
-  "logo_domain_mismatch",
   "cross_origin_password_form",
   "cross_origin_credential_form",
 ];
@@ -129,7 +127,6 @@ export const AGENT_WEIGHTS: Record<string, number> = {
 
 export const THRESHOLDS = {
   ALLOW_MAX: 25,
-  WARN_MAX: 55,
   BLOCK_MIN: 56,
 };
 

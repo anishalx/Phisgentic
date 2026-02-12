@@ -143,9 +143,14 @@ export class PluginUrlAgent {
     }
 
     // IP address check
+    // M10 fix: Downgrade severity to "high" (removed from CRITICAL_VETO_SIGNALS in config)
+    // and skip private/loopback IPs which are legitimate internal tools
     if (parsed.isIP) {
-      signals.push(createSignal("ip_address", "critical", parsed.hostname, "URL uses IP address instead of domain"));
-      score += 30;
+      const isPrivateIP = /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|127\.)/.test(parsed.hostname);
+      if (!isPrivateIP) {
+        signals.push(createSignal("ip_address", "high", parsed.hostname, "URL uses IP address instead of domain"));
+        score += 30;
+      }
     }
 
     // URL length
@@ -211,8 +216,11 @@ export class PluginUrlAgent {
     }
 
     // Typosquatting
+    // H2 fix: Use domain name without TLD, only strip hyphens (not all non-alpha)
+    // to avoid false positives like "applet.com" -> "applet" matching "apple"
     const brands = ["paypal", "amazon", "apple", "microsoft", "google", "facebook", "netflix", "instagram"];
-    const cleanDomain = parsed.domain.replace(/[^a-z]/gi, "").toLowerCase();
+    const domainWithoutTld = parsed.domain.split(".")[0].toLowerCase();
+    const cleanDomain = domainWithoutTld.replace(/-/g, "");
     for (const brand of brands) {
       const distance = levenshteinDistance(cleanDomain, brand);
       if (distance > 0 && distance <= 2 && cleanDomain !== brand) {

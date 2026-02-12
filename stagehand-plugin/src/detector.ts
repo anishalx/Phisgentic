@@ -299,7 +299,7 @@ export class PhishGuardDetector {
       };
     }
 
-    // Single agent ≥ 75 → block
+    // Single agent >= 75 -> block
     const highScoreAgent = agentResults.find((r) => r.riskScore >= 75 && r.confidence > 0.3);
     if (highScoreAgent) {
       return {
@@ -307,6 +307,18 @@ export class PhishGuardDetector {
         riskScore: Math.max(75, this.weightedAverageFast(agentResults)),
         confidence: highScoreAgent.confidence,
         summary: `BLOCKED: ${highScoreAgent.agentName} — score ${highScoreAgent.riskScore}/100`,
+      };
+    }
+
+    // C4 fix: 2+ agents > 50 -> consensus block (was missing from fast mode)
+    const moderateAgents = agentResults.filter((r) => r.riskScore > 50 && r.confidence > 0.3);
+    if (moderateAgents.length >= 2) {
+      const names = moderateAgents.map((a) => a.agentName).join(", ");
+      return {
+        action: "block",
+        riskScore: this.weightedAverageFast(agentResults),
+        confidence: Math.max(...moderateAgents.map((a) => a.confidence)),
+        summary: `BLOCKED: Multiple agents flagged risk — ${names}`,
       };
     }
 
@@ -346,15 +358,25 @@ export class PhishGuardDetector {
 
   /**
    * Compute weighted average score across all 5 agents using configured weights.
+   * M6 fix: Failed agents (confidence <= 0) get the average of other agents' scores
+   * instead of being excluded, which would inflate remaining scores.
    */
   private weightedAverage(agentResults: AgentResult[]): number {
+    const validResults = agentResults.filter((r) => r.confidence > 0);
+    if (validResults.length === 0) return 0;
+
+    // Calculate the average score of valid agents to use as neutral fill
+    const validAvg = validResults.reduce((sum, r) => sum + r.riskScore, 0) / validResults.length;
+
     let totalWeight = 0;
     let weightedSum = 0;
 
     for (const result of agentResults) {
       const weight = AGENT_WEIGHTS[result.agentId] ?? 0;
-      if (result.confidence > 0) {
-        weightedSum += result.riskScore * weight;
+      if (weight > 0) {
+        // M6: Use neutral (average) score for failed agents instead of excluding them
+        const score = result.confidence > 0 ? result.riskScore : validAvg;
+        weightedSum += score * weight;
         totalWeight += weight;
       }
     }
@@ -365,6 +387,7 @@ export class PhishGuardDetector {
 
   /**
    * Compute weighted average for fast mode (URL: 0.4, Domain: 0.6).
+   * M6 fix: Failed agents get neutral score instead of being excluded.
    */
   private weightedAverageFast(agentResults: AgentResult[]): number {
     const fastWeights: Record<string, number> = {
@@ -372,13 +395,19 @@ export class PhishGuardDetector {
       domainAgent: 0.6,
     };
 
+    const validResults = agentResults.filter((r) => r.confidence > 0);
+    if (validResults.length === 0) return 0;
+
+    const validAvg = validResults.reduce((sum, r) => sum + r.riskScore, 0) / validResults.length;
+
     let totalWeight = 0;
     let weightedSum = 0;
 
     for (const result of agentResults) {
       const weight = fastWeights[result.agentId] ?? 0;
-      if (result.confidence > 0) {
-        weightedSum += result.riskScore * weight;
+      if (weight > 0) {
+        const score = result.confidence > 0 ? result.riskScore : validAvg;
+        weightedSum += score * weight;
         totalWeight += weight;
       }
     }

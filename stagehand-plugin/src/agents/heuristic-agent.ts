@@ -89,7 +89,9 @@ export class PluginHeuristicAgent {
     } catch { /* invalid URL */ }
 
     // Base64-like data in URL
-    if (/[A-Za-z0-9+/=]{30,}/.test(url)) {
+    // M9 fix: Target base64 in query parameter values only, not the entire URL
+    // The old regex /[A-Za-z0-9+/=]{30,}/ matched nearly all URLs with 30+ path chars
+    if (/[?&=][A-Za-z0-9+/]{30,}={0,2}(?:&|$)/.test(url)) {
       signals.push(createSignal("encoded_data", "medium", true, "URL contains encoded data"));
       score += 10;
     }

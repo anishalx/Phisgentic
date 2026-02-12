@@ -5,7 +5,7 @@
 import type { Page } from "playwright";
 import type { LinkScanReport, SuspiciousLink, ResolvedOptions } from "./types.js";
 import { PluginUrlAgent, PluginDomainAgent } from "./agents/index.js";
-import { SAFE_DOMAINS } from "./agents/config.js";
+import { SAFE_DOMAINS, THRESHOLDS } from "./agents/config.js";
 
 interface ExtractedLink {
   href: string;
@@ -131,6 +131,8 @@ export class LinkScanner {
     links: ExtractedLink[],
     concurrency: number,
   ): Promise<SuspiciousLink[]> {
+    // C5 fix: Guard against concurrency <= 0 which would cause infinite loop
+    const effectiveConcurrency = Math.max(1, concurrency);
     const suspicious: SuspiciousLink[] = [];
     const queue = [...links];
     const inFlight: Promise<void>[] = [];
@@ -148,7 +150,7 @@ export class LinkScanner {
 
     while (queue.length > 0 || inFlight.length > 0) {
       // Fill up to concurrency limit
-      while (queue.length > 0 && inFlight.length < concurrency) {
+      while (queue.length > 0 && inFlight.length < effectiveConcurrency) {
         const link = queue.shift()!;
         const promise = processLink(link).then(() => {
           const index = inFlight.indexOf(promise);
@@ -181,8 +183,8 @@ export class LinkScanner {
       urlResult.riskScore * 0.4 + domainResult.riskScore * 0.6,
     );
 
-    // Only flag if above threshold
-    if (riskScore <= 25) return null;
+    // M14 fix: Use config threshold instead of hardcoded value
+    if (riskScore <= THRESHOLDS.ALLOW_MAX) return null;
 
     const allSignals = [...urlResult.signals, ...domainResult.signals];
     const criticalSignals = allSignals.filter(

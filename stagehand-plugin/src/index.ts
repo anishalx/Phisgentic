@@ -66,14 +66,14 @@ export function withPhishGuard<T extends Record<string, unknown>>(
  * import { createPhishGuardScanner } from "phishguard-stagehand-plugin";
  *
  * const scanner = createPhishGuardScanner({
- *   groqApiKey: process.env.GROQ_API_KEY!,
+ *   groqApiKey: process.env.GROQ_API_KEY!, // optional, reserved for future use
  * });
  *
  * // Fast scan (URL + Domain only, ~200ms)
  * const fastResult = await scanner.fastScan("https://suspicious-site.com");
  *
- * // Full scan (all 5 agents, needs page)
- * const fullResult = await scanner.scan("https://suspicious-site.com");
+ * // Full scan (all 5 agents, pass a Playwright page for content analysis)
+ * const fullResult = await scanner.scan("https://suspicious-site.com", page);
  *
  * // Check stats
  * console.log(scanner.getStats());
@@ -83,7 +83,7 @@ export function createPhishGuardScanner(options: PhishGuardOptions): PhishGuardS
   const plugin = new PhishGuardPlugin(options);
 
   return {
-    scan: (url: string) => plugin.scan(url),
+    scan: (url: string, page?: unknown) => plugin.scan(url, page),
     fastScan: (url: string) => plugin.fastScan(url),
     getStats: () => plugin.getStats(),
     clearCache: () => plugin.clearCache(),

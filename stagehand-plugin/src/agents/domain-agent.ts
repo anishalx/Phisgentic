@@ -105,6 +105,8 @@ export class PluginDomainAgent {
     }
 
     // Brand impersonation in domain
+    // H1 fix: Track whether brand_impersonation fired to avoid double-counting with brand_in_subdomain
+    let brandImpersonationMatched = false;
     for (const brand of PROTECTED_BRANDS) {
       if (
         (domain.toLowerCase().includes(brand.name) || hostname.toLowerCase().includes(brand.name)) &&
@@ -114,18 +116,22 @@ export class PluginDomainAgent {
         signals.push(createSignal("brand_impersonation", "critical", brand.name,
           `Impersonating ${brand.name} - not official ${brand.domain}`));
         score += 45;
+        brandImpersonationMatched = true;
         break;
       }
     }
 
     // Brand in subdomain
-    const subdomainPart = hostname.replace(domain, "").toLowerCase();
-    for (const brand of PROTECTED_BRANDS) {
-      if (subdomainPart.includes(brand.name) && !hostname.endsWith(brand.domain)) {
-        signals.push(createSignal("brand_in_subdomain", "critical", brand.name,
-          `Brand "${brand.name}" in subdomain but not official domain`));
-        score += 40;
-        break;
+    // H1 fix: Skip if brand_impersonation already matched to prevent double-counting
+    if (!brandImpersonationMatched) {
+      const subdomainPart = hostname.replace(domain, "").toLowerCase();
+      for (const brand of PROTECTED_BRANDS) {
+        if (subdomainPart.includes(brand.name) && !hostname.endsWith(brand.domain)) {
+          signals.push(createSignal("brand_in_subdomain", "critical", brand.name,
+            `Brand "${brand.name}" in subdomain but not official domain`));
+          score += 40;
+          break;
+        }
       }
     }
 
@@ -160,7 +166,7 @@ export class PluginDomainAgent {
       const letters = domainName.toLowerCase().replace(/[^a-z]/g, "").length;
       if (letters >= 5) {
         const consonantRatio = consonants / letters;
-        if (consonantRatio > 0.8 || /[bcdfghjklmnpqrstvwxyz]{5,}/i.test(domainName)) {
+        if (consonantRatio > 0.8 || /[bcdfghjklmnpqrstvwxyz]{7,}/i.test(domainName)) {
           signals.push(createSignal("dga_pattern", "high", domain, "Domain appears randomly generated"));
           score += 30;
         }

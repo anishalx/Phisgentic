@@ -94,8 +94,8 @@ export interface BrowserTestResult {
 // ─── Plugin Configuration ──────────────────────────────────────────────
 
 export interface PhishGuardOptions {
-  /** Groq API key for LLM-powered analysis */
-  groqApiKey: string;
+  /** Groq API key — reserved for future LLM integration. Currently unused by plugin agents. */
+  groqApiKey?: string;
 
   /** Detection mode: "full" runs all 5 agents, "fast" runs URL+Domain only (no LLM) */
   mode?: "full" | "fast";
@@ -134,7 +134,7 @@ export interface PhishGuardOptions {
 // ─── Resolved Configuration (with defaults applied) ────────────────────
 
 export interface ResolvedOptions {
-  groqApiKey: string;
+  groqApiKey?: string;
   mode: "full" | "fast";
   scanPageLinks: boolean;
   maxLinksToScan: number;
@@ -258,8 +258,8 @@ export interface ScannerStats {
 // ─── Manual Scanner Interface ──────────────────────────────────────────
 
 export interface PhishGuardScanner {
-  /** Scan a single URL */
-  scan(url: string): Promise<PhishGuardResult>;
+  /** Scan a single URL. Pass a Playwright Page for full-mode analysis. */
+  scan(url: string, page?: unknown): Promise<PhishGuardResult>;
 
   /** Scan a URL in fast mode (URL+Domain only, no LLM) */
   fastScan(url: string): Promise<PhishGuardResult>;

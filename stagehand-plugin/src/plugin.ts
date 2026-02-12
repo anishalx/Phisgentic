@@ -24,6 +24,12 @@ interface InternalStats {
   totalScanTimeMs: number;
 }
 
+/** Queued navigation for processing when current scan completes (C1 fix) */
+interface PendingNavigation {
+  url: string;
+  page: Record<string, unknown>;
+}
+
 export class PhishGuardPlugin {
   private options: ResolvedOptions;
   private detector: PhishGuardDetector;
@@ -32,6 +38,8 @@ export class PhishGuardPlugin {
   private logger: PhishGuardLogger;
   private stats: InternalStats;
   private scanning: boolean = false;
+  private pendingNavigations: PendingNavigation[] = []; // C1: queue instead of dropping
+  private wrappedPageCache: WeakMap<object, object> = new WeakMap(); // M3: cache wrapped pages
 
   constructor(options: PhishGuardOptions) {
     this.options = resolveOptions(options);
@@ -85,11 +93,18 @@ export class PhishGuardPlugin {
 
   /**
    * Wrap the Stagehand Page to intercept goto() and act().
+   * M3 fix: Uses WeakMap cache to return the same Proxy for the same underlying page.
    */
   private wrapPage(page: Record<string, unknown>): Record<string, unknown> {
+    // M3: Return cached wrapped page if available
+    const cached = this.wrappedPageCache.get(page);
+    if (cached) {
+      return cached as Record<string, unknown>;
+    }
+
     const plugin = this;
 
-    return new Proxy(page, {
+    const wrapped = new Proxy(page, {
       get(target: Record<string, unknown>, prop: string | symbol, receiver: unknown) {
         const value = Reflect.get(target, prop, receiver);
 
@@ -99,8 +114,9 @@ export class PhishGuardPlugin {
             // Navigate first (warn but continue)
             const result = await (value as Function).apply(target, [url, ...args]);
 
-            // Then scan the URL
-            await plugin.handleNavigation(url, target);
+            // C2 fix: Scan the FINAL URL after redirects, not the requested URL
+            const finalUrl = plugin.getPageUrl(target) || url;
+            await plugin.handleNavigation(finalUrl, target);
 
             return result;
           };
@@ -133,6 +149,10 @@ export class PhishGuardPlugin {
         return value;
       },
     });
+
+    // M3: Cache the wrapped page
+    this.wrappedPageCache.set(page, wrapped);
+    return wrapped;
   }
 
   /**
@@ -152,17 +172,18 @@ export class PhishGuardPlugin {
         if (prop === "execute" && typeof value === "function") {
           return async function (this: unknown, ...args: unknown[]) {
             // Capture URL before execution
-            const page = stagehand.page as Record<string, unknown> | undefined;
-            const urlBefore = page ? plugin.getPageUrl(page) : null;
+            const pageBefore = stagehand.page as Record<string, unknown> | undefined;
+            const urlBefore = pageBefore ? plugin.getPageUrl(pageBefore) : null;
 
             // Execute the agent task
             const result = await (value as Function).apply(target, args);
 
-            // Check if URL changed
-            if (page) {
-              const urlAfter = plugin.getPageUrl(page);
+            // M2 fix: Re-read stagehand.page after execute() — agent may have opened new tabs
+            const pageAfter = stagehand.page as Record<string, unknown> | undefined;
+            if (pageAfter) {
+              const urlAfter = plugin.getPageUrl(pageAfter);
               if (urlAfter && urlAfter !== urlBefore) {
-                await plugin.handleNavigation(urlAfter, page);
+                await plugin.handleNavigation(urlAfter, pageAfter);
               }
             }
 
@@ -181,15 +202,55 @@ export class PhishGuardPlugin {
 
   /**
    * Handle a navigation event: scan the URL, log results, trigger callbacks.
+   * C1 fix: Uses a queue to handle concurrent navigations instead of dropping them.
    */
   private async handleNavigation(url: string, page: Record<string, unknown>): Promise<void> {
     // Skip non-http URLs (about:blank, chrome://, etc.)
     if (!url.startsWith("http://") && !url.startsWith("https://")) return;
 
-    // Prevent re-entrant scanning
-    if (this.scanning) return;
+    // C1 fix: If a scan is in progress, queue this navigation instead of dropping it
+    if (this.scanning) {
+      // M1 fix: Log when scans are queued
+      this.logger.warn(`Scan queued (another in progress): ${url}`);
+      this.pendingNavigations.push({ url, page });
+      return;
+    }
     this.scanning = true;
 
+    try {
+      await this.executeScan(url, page);
+    } finally {
+      this.scanning = false;
+
+      // C1 fix: Drain the pending queue
+      await this.drainPendingNavigations();
+    }
+  }
+
+  /**
+   * C1 fix: Process any navigations that were queued while a scan was in progress.
+   */
+  private async drainPendingNavigations(): Promise<void> {
+    while (this.pendingNavigations.length > 0) {
+      const next = this.pendingNavigations.shift()!;
+
+      // Skip non-http URLs
+      if (!next.url.startsWith("http://") && !next.url.startsWith("https://")) continue;
+
+      this.scanning = true;
+      try {
+        await this.executeScan(next.url, next.page);
+      } finally {
+        this.scanning = false;
+      }
+    }
+  }
+
+  /**
+   * Execute the actual scan logic for a single URL.
+   * Extracted from handleNavigation to support the queue pattern.
+   */
+  private async executeScan(url: string, page: Record<string, unknown>): Promise<void> {
     try {
       // Notify scan start
       this.options.onScanStart?.(url);
@@ -198,6 +259,9 @@ export class PhishGuardPlugin {
       // Check cache first
       const cached = this.cache.get(url);
       if (cached) {
+        // M4 fix: Update stats for cached results too (with scanTimeMs: 0)
+        this.updateStats({ ...cached, scanTimeMs: 0 });
+
         this.logger.scanResult(cached);
         this.options.onScanComplete?.(url, cached);
 
@@ -241,8 +305,6 @@ export class PhishGuardPlugin {
       }
     } catch (error) {
       this.logger.error("Scan failed", error);
-    } finally {
-      this.scanning = false;
     }
   }
 
@@ -323,15 +385,24 @@ export class PhishGuardPlugin {
 
   /**
    * Manually scan a URL (full or fast based on configured mode).
+   * C3 fix: Accepts optional page parameter for full-mode scanning.
    */
   async scan(url: string, page?: unknown): Promise<PhishGuardResult> {
     // Check cache
     const cached = this.cache.get(url);
-    if (cached) return cached;
+    if (cached) {
+      // M4 fix: Update stats for cached results
+      this.updateStats({ ...cached, scanTimeMs: 0 });
+      return cached;
+    }
 
     let result: PhishGuardResult;
 
     if (this.options.mode === "fast" || !page) {
+      // C3 fix: Log warning when user configured full mode but no page provided
+      if (this.options.mode === "full" && !page) {
+        this.logger.warn("Full mode requested but no page provided — falling back to fast mode");
+      }
       result = await this.detector.scanFast(url);
     } else {
       result = await this.detector.scanFull(url, page as import("playwright").Page);
@@ -347,7 +418,11 @@ export class PhishGuardPlugin {
    */
   async fastScan(url: string): Promise<PhishGuardResult> {
     const cached = this.cache.get(url);
-    if (cached) return cached;
+    if (cached) {
+      // M4 fix: Update stats for cached results
+      this.updateStats({ ...cached, scanTimeMs: 0 });
+      return cached;
+    }
 
     const result = await this.detector.scanFast(url);
     this.cache.set(url, result);

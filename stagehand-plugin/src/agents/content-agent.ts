@@ -84,25 +84,45 @@ export class PluginContentAgent {
     }
 
     // External form action (CRITICAL)
+    // M11 fix: Also check forms with sensitive input types, not just password forms
     for (const form of content.forms) {
-      if (form.hasPasswordField && form.action) {
+      if (form.action) {
         try {
           const formUrl = new URL(form.action, url);
           const pageUrl = new URL(url);
           if (formUrl.hostname !== pageUrl.hostname) {
-            signals.push(createSignal("external_form_action", "critical", form.action,
-              "Credentials submitted to external domain - HIGH RISK"));
-            score += 45;
+            // Check if form has password field (original check)
+            if (form.hasPasswordField) {
+              signals.push(createSignal("external_form_action", "critical", form.action,
+                "Credentials submitted to external domain - HIGH RISK"));
+              score += 45;
+            }
+            // M11: Also flag forms with sensitive input types (email, tel, credit card autocomplete)
+            else {
+              const sensitiveTypes = ["email", "tel"];
+              const hasSensitiveInput = form.inputTypes.some(
+                (t) => sensitiveTypes.includes(t),
+              );
+              if (hasSensitiveInput) {
+                signals.push(createSignal("external_form_sensitive", "high", form.action,
+                  "Form with sensitive inputs submits to external domain"));
+                score += 25;
+              }
+            }
           }
         } catch { /* invalid URL */ }
       }
     }
 
     // Brand impersonation in title
+    // H4 fix: Check against hostname only, not full URL (prevents path injection bypass)
     const titleLower = content.title.toLowerCase();
-    const urlLower = url.toLowerCase();
+    let urlHostname = "";
+    try {
+      urlHostname = new URL(url).hostname.toLowerCase();
+    } catch { /* invalid URL */ }
     for (const brand of PROTECTED_BRANDS) {
-      if (titleLower.includes(brand.name) && !urlLower.includes(brand.domain)) {
+      if (titleLower.includes(brand.name) && !urlHostname.includes(brand.domain)) {
         signals.push(createSignal("title_brand_mismatch", "critical", brand.name,
           `Page claims to be ${brand.name} but URL is not ${brand.domain}`));
         score += 40;
@@ -197,7 +217,7 @@ export class PluginContentAgent {
       const isEmpty = bodyText.trim().length < 100;
 
       const forms = Array.from(document.forms).map((form: HTMLFormElement) => ({
-        action: form.action || "",
+        action: form.getAttribute("action") || "",  // H3 fix: use getAttribute, not DOM property
         method: form.method || "get",
         hasPasswordField: form.querySelector('input[type="password"]') !== null,
         inputTypes: Array.from(form.querySelectorAll("input")).map(
