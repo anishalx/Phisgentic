@@ -24,6 +24,8 @@ services:
         sync: false  # Set manually in Render dashboard (for dual-model analysis)
       - key: DUAL_MODEL_ENABLED
         value: "true"
+      - key: DASHBOARD_URL
+        sync: false  # Set manually in Render dashboard to https://phishguard-dashboard.onrender.com
 
   # Next.js Web Dashboard
   - type: web

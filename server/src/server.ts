@@ -136,6 +136,8 @@ app.get("/api/scan/stream", async (req: Request, res: Response) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // Disable nginx/Render proxy buffering
+  res.flushHeaders(); // Flush headers immediately so client knows SSE is open
 
   console.log(`[API] Starting stream scan for: ${url}`);
 
@@ -159,6 +161,19 @@ app.get("/api/scan/stream", async (req: Request, res: Response) => {
     }
   };
 
+  // Keepalive ping every 20s to prevent Render/nginx proxy from closing idle SSE connections
+  const keepaliveInterval = setInterval(() => {
+    if (clientConnected && !res.writableEnded) {
+      try {
+        res.write(": keepalive\n\n"); // SSE comment line, ignored by EventSource
+      } catch {
+        clientConnected = false;
+      }
+    } else {
+      clearInterval(keepaliveInterval);
+    }
+  }, 20_000);
+
   // Check cache — if cached, replay logs and result immediately
   const cache = getScanCache();
   const cached = cache.get(url);
@@ -177,7 +192,7 @@ app.get("/api/scan/stream", async (req: Request, res: Response) => {
     safeSend("log", JSON.stringify(log));
   };
 
-  // Server-side timeout: auto-end SSE connection after 60s to prevent hanging
+  // Server-side timeout: auto-end SSE connection after 120s to prevent hanging
   const sseTimeout = setTimeout(() => {
     if (clientConnected && !res.writableEnded) {
       console.log(`[API] SSE timeout for: ${url}`);
@@ -185,7 +200,7 @@ app.get("/api/scan/stream", async (req: Request, res: Response) => {
       if (!res.writableEnded) res.end();
       clientConnected = false;
     }
-  }, 60_000);
+  }, 120_000);
 
   try {
     const orchestrator = getOrchestrator();
@@ -209,6 +224,7 @@ app.get("/api/scan/stream", async (req: Request, res: Response) => {
     if (!res.writableEnded) res.end();
   } finally {
     clearTimeout(sseTimeout);
+    clearInterval(keepaliveInterval);
   }
 });
 
