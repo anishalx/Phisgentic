@@ -31,6 +31,18 @@ const historyBtn = document.getElementById("history-btn") as HTMLButtonElement;
 const whitelistBtn = document.getElementById("whitelist-btn") as HTMLButtonElement;
 const reportBtn = document.getElementById("report-btn") as HTMLButtonElement;
 
+// Escape HTML to prevent XSS
+function escapeHtml(str: string): string {
+  const map: Record<string, string> = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;",
+  };
+  return str.replace(/[&<>"']/g, (c) => map[c] || c);
+}
+
 let currentUrl = "";
 let currentVerdict: FinalVerdict | null = null;
 let historyVisible = false;
@@ -204,10 +216,10 @@ function showResult(verdict: FinalVerdict) {
           <div class="agent-card">
             <div class="agent-icon">${icon}</div>
             <div class="agent-info">
-              <div class="agent-name">${agent.agentName}</div>
+              <div class="agent-name">${escapeHtml(agent.agentName)}</div>
               <div class="agent-detail">${agent.signals.length} signal${agent.signals.length !== 1 ? 's' : ''} detected</div>
             </div>
-            <span class="agent-score ${scoreClass}">${agent.riskScore}</span>
+            <span class="agent-score ${scoreClass}">${escapeHtml(String(agent.riskScore))}</span>
           </div>
         `;
       })
@@ -224,8 +236,8 @@ function showResult(verdict: FinalVerdict) {
       .slice(0, 8)
       .map((signal) => `
         <div class="signal-item">
-          <div class="signal-dot ${signal.severity}"></div>
-          <div class="signal-text">${signal.description}</div>
+          <div class="signal-dot ${escapeHtml(signal.severity)}"></div>
+          <div class="signal-text">${escapeHtml(signal.description)}</div>
         </div>
       `)
       .join("");
@@ -251,7 +263,7 @@ async function loadHistory() {
     return;
   }
 
-  historyList.innerHTML = history
+  historyList.innerHTML = [...history]
     .reverse()
     .map((entry) => {
       const icon =
@@ -268,10 +280,10 @@ async function loadHistory() {
         <div class="history-item">
           <span class="history-icon">${icon}</span>
           <div class="history-details">
-            <div class="history-url">${domain}</div>
-            <div class="history-time">${time}</div>
+            <div class="history-url">${escapeHtml(domain)}</div>
+            <div class="history-time">${escapeHtml(time)}</div>
           </div>
-          <span class="history-score agent-score ${scoreClass}">${entry.verdict.overallRiskScore}</span>
+          <span class="history-score agent-score ${scoreClass}">${escapeHtml(String(entry.verdict.overallRiskScore))}</span>
         </div>
       `;
     })

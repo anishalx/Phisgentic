@@ -9,9 +9,7 @@ export const SAFE_DOMAINS = [
 ];
 
 export const BLOCKLIST_DOMAINS = [
-  "000webhostapp.com", "weebly.com", "wixsite.com", "blogspot.com",
-  "sites.google.com", "forms.gle", "netlify.app", "vercel.app",
-  "herokuapp.com", "glitch.me", "repl.co", "firebaseapp.com",
+  "000webhostapp.com", "weebly.com", "wixsite.com",
   "duckdns.org", "ddns.net", "no-ip.org", "hopto.org",
   "zapto.org", "sytes.net", "serveblog.net", "serveftp.com",
 ];
@@ -59,34 +57,37 @@ export const PHISHING_KEYWORDS = [
   "webscr", "cgi-bin", "cmd=",
 ];
 
+// NOTE: Brands with names <= 3 chars (ups, dhl) need exact-match logic
+// in domain-agent.ts to avoid false positives (e.g., "setup.com" matching "ups").
+// minLength controls the minimum hostname segment length for includes() matching.
 export const PROTECTED_BRANDS = [
-  { name: "paypal", domain: "paypal.com" },
-  { name: "amazon", domain: "amazon.com" },
-  { name: "apple", domain: "apple.com" },
-  { name: "microsoft", domain: "microsoft.com" },
-  { name: "google", domain: "google.com" },
-  { name: "facebook", domain: "facebook.com" },
-  { name: "meta", domain: "meta.com" },
-  { name: "instagram", domain: "instagram.com" },
-  { name: "netflix", domain: "netflix.com" },
-  { name: "spotify", domain: "spotify.com" },
-  { name: "linkedin", domain: "linkedin.com" },
-  { name: "twitter", domain: "twitter.com" },
-  { name: "chase", domain: "chase.com" },
-  { name: "wellsfargo", domain: "wellsfargo.com" },
-  { name: "bankofamerica", domain: "bankofamerica.com" },
-  { name: "usps", domain: "usps.com" },
-  { name: "fedex", domain: "fedex.com" },
-  { name: "ups", domain: "ups.com" },
-  { name: "dhl", domain: "dhl.com" },
-  { name: "walmart", domain: "walmart.com" },
-  { name: "ebay", domain: "ebay.com" },
-  { name: "dropbox", domain: "dropbox.com" },
-  { name: "outlook", domain: "outlook.com" },
-  { name: "office365", domain: "office.com" },
-  { name: "icloud", domain: "icloud.com" },
-  { name: "coinbase", domain: "coinbase.com" },
-  { name: "binance", domain: "binance.com" },
+  { name: "paypal", domain: "paypal.com", minLength: 4 },
+  { name: "amazon", domain: "amazon.com", minLength: 4 },
+  { name: "apple", domain: "apple.com", minLength: 4 },
+  { name: "microsoft", domain: "microsoft.com", minLength: 4 },
+  { name: "google", domain: "google.com", minLength: 4 },
+  { name: "facebook", domain: "facebook.com", minLength: 4 },
+  { name: "meta", domain: "meta.com", minLength: 4 },
+  { name: "instagram", domain: "instagram.com", minLength: 4 },
+  { name: "netflix", domain: "netflix.com", minLength: 4 },
+  { name: "spotify", domain: "spotify.com", minLength: 4 },
+  { name: "linkedin", domain: "linkedin.com", minLength: 4 },
+  { name: "twitter", domain: "twitter.com", minLength: 4 },
+  { name: "chase", domain: "chase.com", minLength: 4 },
+  { name: "wellsfargo", domain: "wellsfargo.com", minLength: 4 },
+  { name: "bankofamerica", domain: "bankofamerica.com", minLength: 4 },
+  { name: "usps", domain: "usps.com", minLength: 4 },
+  { name: "fedex", domain: "fedex.com", minLength: 4 },
+  { name: "ups", domain: "ups.com", minLength: 3 },
+  { name: "dhl", domain: "dhl.com", minLength: 3 },
+  { name: "walmart", domain: "walmart.com", minLength: 4 },
+  { name: "ebay", domain: "ebay.com", minLength: 4 },
+  { name: "dropbox", domain: "dropbox.com", minLength: 4 },
+  { name: "outlook", domain: "outlook.com", minLength: 4 },
+  { name: "office365", domain: "office.com", minLength: 4 },
+  { name: "icloud", domain: "icloud.com", minLength: 4 },
+  { name: "coinbase", domain: "coinbase.com", minLength: 4 },
+  { name: "binance", domain: "binance.com", minLength: 4 },
 ];
 
 export const URGENCY_PATTERNS = [

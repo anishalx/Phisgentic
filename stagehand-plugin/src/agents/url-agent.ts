@@ -26,6 +26,18 @@ interface ParsedUrl {
   hasNonStandardPort: boolean;
 }
 
+// Two-part TLDs that need special handling (e.g., "co.uk", "com.au")
+const TWO_PART_TLDS = new Set([
+  "co.uk", "co.in", "co.jp", "co.kr", "co.nz", "co.za", "co.id", "co.il", "co.th",
+  "com.au", "com.br", "com.cn", "com.mx", "com.sg", "com.hk", "com.tw", "com.ar",
+  "com.tr", "com.pk", "com.ng", "com.eg", "com.ph", "com.my", "com.vn", "com.co",
+  "org.uk", "org.au", "org.in",
+  "net.au", "net.br", "net.in",
+  "gov.uk", "gov.au", "gov.in",
+  "ac.uk", "ac.in", "ac.jp",
+  "edu.au", "edu.cn",
+]);
+
 function parseUrl(urlString: string): ParsedUrl | null {
   try {
     const url = new URL(urlString);
@@ -37,15 +49,14 @@ function parseUrl(urlString: string): ParsedUrl | null {
     let tld = "";
 
     if (!isIP && parts.length >= 2) {
-      tld = "." + parts[parts.length - 1];
-      if (
-        parts.length >= 3 &&
-        ["co", "com", "org", "net", "gov"].includes(parts[parts.length - 2])
-      ) {
-        tld = "." + parts.slice(-2).join(".");
+      // Check for two-part TLDs (e.g., "co.uk")
+      const lastTwo = parts.slice(-2).join(".");
+      if (parts.length >= 3 && TWO_PART_TLDS.has(lastTwo)) {
+        tld = "." + lastTwo;
         domain = parts.slice(-3).join(".");
         subdomain = parts.slice(0, -3).join(".");
       } else {
+        tld = "." + parts[parts.length - 1];
         domain = parts.slice(-2).join(".");
         subdomain = parts.slice(0, -2).join(".");
       }

@@ -20,6 +20,18 @@ function createSignal(
   return { type, severity, value, description };
 }
 
+// Two-part TLDs that need special handling (e.g., "co.uk", "com.au")
+const TWO_PART_TLDS = new Set([
+  "co.uk", "co.in", "co.jp", "co.kr", "co.nz", "co.za", "co.id", "co.il", "co.th",
+  "com.au", "com.br", "com.cn", "com.mx", "com.sg", "com.hk", "com.tw", "com.ar",
+  "com.tr", "com.pk", "com.ng", "com.eg", "com.ph", "com.my", "com.vn", "com.co",
+  "org.uk", "org.au", "org.in",
+  "net.au", "net.br", "net.in",
+  "gov.uk", "gov.au", "gov.in",
+  "ac.uk", "ac.in", "ac.jp",
+  "edu.au", "edu.cn",
+]);
+
 function parseUrl(urlString: string): { domain: string; hostname: string; tld: string; isIP: boolean } | null {
   try {
     const url = new URL(urlString);
@@ -30,14 +42,13 @@ function parseUrl(urlString: string): { domain: string; hostname: string; tld: s
     let tld = "";
 
     if (!isIP && parts.length >= 2) {
-      tld = "." + parts[parts.length - 1];
-      if (
-        parts.length >= 3 &&
-        ["co", "com", "org", "net", "gov"].includes(parts[parts.length - 2])
-      ) {
-        tld = "." + parts.slice(-2).join(".");
+      // Check for two-part TLDs (e.g., "co.uk")
+      const lastTwo = parts.slice(-2).join(".");
+      if (parts.length >= 3 && TWO_PART_TLDS.has(lastTwo)) {
+        tld = "." + lastTwo;
         domain = parts.slice(-3).join(".");
       } else {
+        tld = "." + parts[parts.length - 1];
         domain = parts.slice(-2).join(".");
       }
     }
@@ -96,8 +107,10 @@ export class PluginDomainAgent {
     }
 
     // Suspicious free hosting
+    // Fix: Use domain matching instead of includes() to avoid false positives
+    // (e.g., "notvercel.app" should not match "vercel.app")
     for (const pattern of SUSPICIOUS_HOSTING_PATTERNS) {
-      if (hostname.includes(pattern)) {
+      if (hostname === pattern || hostname.endsWith(`.${pattern}`)) {
         signals.push(createSignal("suspicious_hosting", "critical", pattern, `Uses free hosting: ${pattern}`));
         score += 50;
         break;
@@ -105,14 +118,24 @@ export class PluginDomainAgent {
     }
 
     // Brand impersonation in domain
-    // H1 fix: Track whether brand_impersonation fired to avoid double-counting with brand_in_subdomain
+    // Fix: Use word-boundary matching for short brand names (<=3 chars) to avoid
+    // false positives like "setup.com" matching "ups" or "metadata.com" matching "meta"
     let brandImpersonationMatched = false;
     for (const brand of PROTECTED_BRANDS) {
-      if (
-        (domain.toLowerCase().includes(brand.name) || hostname.toLowerCase().includes(brand.name)) &&
-        !hostname.endsWith(brand.domain) &&
-        domain !== brand.domain
-      ) {
+      // Skip if this is the brand's official domain
+      if (hostname.endsWith(brand.domain) || domain === brand.domain) continue;
+
+      let matchesInDomain = false;
+      if (brand.name.length <= (brand.minLength ?? 4) - 1) {
+        // Short brand names: require word-boundary match (separated by dots or hyphens)
+        const parts = hostname.split(/[.\-]/);
+        matchesInDomain = parts.some(part => part === brand.name);
+      } else {
+        // Longer brand names: includes() is safe enough
+        matchesInDomain = domain.includes(brand.name) || hostname.includes(brand.name);
+      }
+
+      if (matchesInDomain) {
         signals.push(createSignal("brand_impersonation", "critical", brand.name,
           `Impersonating ${brand.name} - not official ${brand.domain}`));
         score += 45;
@@ -122,15 +145,32 @@ export class PluginDomainAgent {
     }
 
     // Brand in subdomain
-    // H1 fix: Skip if brand_impersonation already matched to prevent double-counting
+    // Fix: Properly extract subdomain by removing the domain suffix, and use
+    // word-boundary matching for short brand names
     if (!brandImpersonationMatched) {
-      const subdomainPart = hostname.replace(domain, "").toLowerCase();
-      for (const brand of PROTECTED_BRANDS) {
-        if (subdomainPart.includes(brand.name) && !hostname.endsWith(brand.domain)) {
-          signals.push(createSignal("brand_in_subdomain", "critical", brand.name,
-            `Brand "${brand.name}" in subdomain but not official domain`));
-          score += 40;
-          break;
+      // Extract subdomain: remove trailing dot + domain from hostname
+      const subdomainPart = hostname.endsWith(`.${domain}`)
+        ? hostname.slice(0, -(domain.length + 1))
+        : (hostname === domain ? "" : hostname.replace(`.${domain}`, ""));
+
+      if (subdomainPart) {
+        for (const brand of PROTECTED_BRANDS) {
+          if (hostname.endsWith(brand.domain) || domain === brand.domain) continue;
+
+          let matchesInSubdomain = false;
+          if (brand.name.length <= (brand.minLength ?? 4) - 1) {
+            const parts = subdomainPart.split(/[.\-]/);
+            matchesInSubdomain = parts.some(part => part === brand.name);
+          } else {
+            matchesInSubdomain = subdomainPart.includes(brand.name);
+          }
+
+          if (matchesInSubdomain) {
+            signals.push(createSignal("brand_in_subdomain", "critical", brand.name,
+              `Brand "${brand.name}" in subdomain but not official domain`));
+            score += 40;
+            break;
+          }
         }
       }
     }

@@ -1,7 +1,10 @@
 // Groq API Client for LLM-powered analysis
 
 import { CONFIG } from "../config/index.js";
-import type { GroqRequest, GroqResponse, GroqMessage, LogoDetectionResult } from "../types/index.js";
+import type { GroqRequest, GroqResponse, GroqMessage, LogoDetectionResult, LLMAnalysisResult } from "../types/index.js";
+import { getGroqRateLimiter } from "../utils/rate-limiter.js";
+
+const REQUEST_TIMEOUT_MS = 20_000; // 20 second timeout (down from 25s to leave headroom for 30s orchestrator)
 
 export class GroqClient {
   private apiUrl: string;
@@ -20,7 +23,8 @@ export class GroqClient {
     systemPrompt: string,
     userPrompt: string,
     jsonSchema?: object,
-  ): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  ): Promise<{ success: boolean; data?: unknown; error?: string; latencyMs?: number }> {
+    const startTime = Date.now();
     const messages: GroqMessage[] = [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
@@ -33,17 +37,22 @@ export class GroqClient {
       max_completion_tokens: CONFIG.ANALYSIS.LLM_MAX_TOKENS,
     };
 
+    // Use json_object mode (Groq Llama doesn't support json_schema)
+    // The schema is embedded in the system prompt instead
     if (jsonSchema) {
       request.response_format = {
-        type: "json_schema",
-        json_schema: {
-          name: "analysis_response",
-          schema: jsonSchema,
-        },
+        type: "json_object",
       };
     }
 
+    // AbortController for fetch timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
     try {
+      // Rate limit: wait for token before making API call
+      await getGroqRateLimiter().acquire(REQUEST_TIMEOUT_MS);
+
       const response = await fetch(this.apiUrl, {
         method: "POST",
         headers: {
@@ -51,6 +60,7 @@ export class GroqClient {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(request),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -58,13 +68,14 @@ export class GroqClient {
         return {
           success: false,
           error: `API error: ${response.status} - ${errorText}`,
+          latencyMs: Date.now() - startTime,
         };
       }
 
       const data = (await response.json()) as GroqResponse;
 
       if (!data.choices || data.choices.length === 0) {
-        return { success: false, error: "No response from LLM" };
+        return { success: false, error: "No response from LLM", latencyMs: Date.now() - startTime };
       }
 
       const content = data.choices[0].message.content;
@@ -73,19 +84,29 @@ export class GroqClient {
       if (jsonSchema) {
         try {
           const parsed = JSON.parse(content);
-          return { success: true, data: parsed };
+          return { success: true, data: parsed, latencyMs: Date.now() - startTime };
         } catch {
-          return { success: false, error: "Failed to parse JSON response" };
+          return { success: false, error: "Failed to parse JSON response", latencyMs: Date.now() - startTime };
         }
       }
 
-      return { success: true, data: content };
+      return { success: true, data: content, latencyMs: Date.now() - startTime };
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return {
+          success: false,
+          error: `Groq API request timed out after ${REQUEST_TIMEOUT_MS}ms`,
+          latencyMs: Date.now() - startTime,
+        };
+      }
       return {
         success: false,
         error:
           error instanceof Error ? error.message : "Unknown error occurred",
+        latencyMs: Date.now() - startTime,
       };
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -94,12 +115,7 @@ export class GroqClient {
     agentName: string,
     systemPrompt: string,
     analysisData: object,
-  ): Promise<{
-    riskScore: number;
-    confidence: number;
-    signals: unknown[];
-    explanation: string;
-  } | null> {
+  ): Promise<LLMAnalysisResult | null> {
     const schema = {
       type: "object",
       properties: {
@@ -125,7 +141,7 @@ export class GroqClient {
               value: { type: "string" },
               description: { type: "string" },
             },
-            required: ["type", "severity", "description"],
+            required: ["type", "severity", "value", "description"],
           },
         },
         explanation: {
@@ -136,20 +152,41 @@ export class GroqClient {
       required: ["riskScore", "confidence", "signals", "explanation"],
     };
 
+    // Embed the JSON schema in the prompt since Groq uses json_object mode
+    const enhancedPrompt = `${systemPrompt}\n\nYou MUST respond with valid JSON matching this schema:\n${JSON.stringify(schema, null, 2)}`;
+
     const userPrompt = `Analyze the following data for phishing indicators:\n\n${JSON.stringify(analysisData, null, 2)}`;
 
-    const result = await this.analyze(systemPrompt, userPrompt, schema);
+    const result = await this.analyze(enhancedPrompt, userPrompt, schema);
 
     if (result.success && result.data) {
-      return result.data as {
+      const data = result.data as {
         riskScore: number;
         confidence: number;
         signals: unknown[];
         explanation: string;
       };
+      return {
+        riskScore: data.riskScore,
+        confidence: data.confidence,
+        signals: (data.signals || []).map((s: unknown) => {
+          const signal = s as Record<string, unknown>;
+          return {
+            type: String(signal.type || "unknown"),
+            severity: (["low", "medium", "high", "critical"].includes(String(signal.severity))
+              ? String(signal.severity)
+              : "medium") as "low" | "medium" | "high" | "critical",
+            value: signal.value !== undefined ? String(signal.value) : "",
+            description: String(signal.description || ""),
+          };
+        }),
+        explanation: data.explanation,
+        model: this.model,
+        latencyMs: result.latencyMs || 0,
+      };
     }
 
-    console.error(`${agentName} analysis failed:`, result.error);
+    console.error(`${agentName} Groq analysis failed:`, result.error);
     return null;
   }
 
@@ -197,7 +234,13 @@ Respond in JSON format with these fields:
       },
     ];
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
     try {
+      // Rate limit: wait for token before making API call
+      await getGroqRateLimiter().acquire(REQUEST_TIMEOUT_MS);
+
       const response = await fetch(this.apiUrl, {
         method: "POST",
         headers: {
@@ -210,6 +253,7 @@ Respond in JSON format with these fields:
           temperature: 0.1,
           max_completion_tokens: 500,
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -241,7 +285,7 @@ Respond in JSON format with these fields:
           const knownDomains = CONFIG.BRAND_DOMAINS[brandLower] || [];
           
           // Check if page domain matches any legitimate domain for this brand
-          const isLegitimate = knownDomains.some(legitDomain => 
+          const isLegitimate = knownDomains.some((legitDomain: string) => 
             pageDomain === legitDomain || pageDomain.endsWith(`.${legitDomain}`)
           );
           
@@ -255,8 +299,14 @@ Respond in JSON format with these fields:
         return null;
       }
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        console.error("[GroqClient] Vision API request timed out");
+        return null;
+      }
       console.error("[GroqClient] Vision analysis error:", error);
       return null;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

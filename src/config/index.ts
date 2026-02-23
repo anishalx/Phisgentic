@@ -5,9 +5,9 @@ export const CONFIG = {
   API_BASE_URL: "http://localhost:3001",
   API_SCAN_ENDPOINT: "/api/scan",
 
-  // Groq API Configuration (kept for reference, not used in extension)
-  GROQ_API_URL: "https://api.groq.com/openai/v1/chat/completions",
-  GROQ_API_KEY: process.env.GROQ_API_KEY || "YOUR_GROQ_API_KEY_HERE",
+  // NOTE: Groq API is NOT used directly by the extension.
+  // All LLM calls go through the backend API server.
+  // These are kept for reference only.
   GROQ_MODEL: "llama-3.3-70b-versatile",
 
   // Agent weights for final scoring

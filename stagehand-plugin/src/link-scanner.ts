@@ -16,9 +16,13 @@ export class LinkScanner {
   private urlAgent: PluginUrlAgent;
   private domainAgent: PluginDomainAgent;
 
-  constructor() {
-    this.urlAgent = new PluginUrlAgent();
-    this.domainAgent = new PluginDomainAgent();
+  /**
+   * @param urlAgent Optional shared PluginUrlAgent instance (creates new one if not provided)
+   * @param domainAgent Optional shared PluginDomainAgent instance (creates new one if not provided)
+   */
+  constructor(urlAgent?: PluginUrlAgent, domainAgent?: PluginDomainAgent) {
+    this.urlAgent = urlAgent ?? new PluginUrlAgent();
+    this.domainAgent = domainAgent ?? new PluginDomainAgent();
   }
 
   /**

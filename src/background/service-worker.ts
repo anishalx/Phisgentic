@@ -12,6 +12,8 @@ const API_URL = `${CONFIG.API_BASE_URL}${CONFIG.API_SCAN_ENDPOINT}`;
 // Store pending analyses
 const pendingAnalyses = new Map<number, Promise<FinalVerdict | null>>();
 const analysisResults = new Map<number, FinalVerdict>();
+// Track which tabs have already been analyzed for deduplication
+const analyzedUrls = new Map<number, string>();
 
 // Initialize extension
 chrome.runtime.onInstalled.addListener(() => {
@@ -69,6 +71,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   }
 
   // Start analysis (don't block navigation, analyze in background)
+  analyzedUrls.set(tabId, url);
   const analysisPromise = analyzeUrlViaAPI(tabId, url);
   pendingAnalyses.set(tabId, analysisPromise);
 
@@ -209,7 +212,8 @@ async function analyzeUrlViaAPI(
 }
 
 /**
- * Handle page content received from content script
+ * Handle page content received from content script.
+ * Skip re-analysis if the URL was already analyzed by onBeforeNavigate.
  */
 async function handlePageContent(
   tabId: number,
@@ -219,7 +223,13 @@ async function handlePageContent(
   const settings = await getSettings();
   if (!settings.enabled) return;
 
-  // Re-analyze with page content for deeper inspection
+  // Deduplicate: if we already analyzed this exact URL for this tab, skip
+  if (analyzedUrls.get(tabId) === url && analysisResults.has(tabId)) {
+    console.log(`[PhishGuard AI] Skipping duplicate analysis for tab ${tabId}: ${url}`);
+    return;
+  }
+
+  // Only re-analyze if we have new page content and haven't analyzed yet
   const verdict = await analyzeUrlViaAPI(tabId, url, pageContent);
 
   if (verdict) {
@@ -351,6 +361,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   analysisResults.delete(tabId);
   pendingAnalyses.delete(tabId);
+  analyzedUrls.delete(tabId);
 });
 
 console.log("[PhishGuard AI] Service worker initialized (API mode)");

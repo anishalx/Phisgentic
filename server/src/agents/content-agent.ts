@@ -144,38 +144,33 @@ export class ContentAgent extends BaseAgent {
       );
     }
 
-    // Use LLM for deeper content analysis
+    // Use LLM for deeper content analysis (dual-model)
     try {
-      const llmResult = await this.groqClient.analyzeForAgent(
-        this.agentName,
-        this.systemPrompt,
-        {
-          url,
-          pageTitle: pageContent.title,
-          hasPasswordField: pageContent.hasPasswordField,
-          hasLoginForm: pageContent.hasLoginForm,
-          formCount: pageContent.forms.length,
-          forms: pageContent.forms.slice(0, 5).map((f) => ({
-            action: f.action,
-            method: f.method,
-            hasPassword: f.hasPasswordField,
-          })),
-          externalLinks: pageContent.links.filter((l) => l.isExternal).length,
-          textSample: pageContent.textContent.substring(0, 3000),
-          metaTags: pageContent.metaTags,
-          localSignals: signals.map((s) => ({
-            type: s.type,
-            severity: s.severity,
-            description: s.description,
-          })),
-          localRiskScore,
-          instruction: "Be aggressive. Score 70+ if suspicious. Score 90+ if clearly phishing.",
-        },
-      );
+      const { result: llmResult } = await this.dualModelAnalyze({
+        url,
+        pageTitle: pageContent.title,
+        hasPasswordField: pageContent.hasPasswordField,
+        hasLoginForm: pageContent.hasLoginForm,
+        formCount: pageContent.forms.length,
+        forms: pageContent.forms.slice(0, 5).map((f) => ({
+          action: f.action,
+          method: f.method,
+          hasPassword: f.hasPasswordField,
+        })),
+        externalLinks: pageContent.links.filter((l) => l.isExternal).length,
+        textSample: pageContent.textContent.substring(0, 3000),
+        metaTags: pageContent.metaTags,
+        localSignals: signals.map((s) => ({
+          type: s.type,
+          severity: s.severity,
+          description: s.description,
+        })),
+        localRiskScore,
+        instruction: "Be aggressive. Score 70+ if suspicious. Score 90+ if clearly phishing.",
+      });
 
       if (llmResult) {
-        const llmSignals = (llmResult.signals as Signal[]) || [];
-        const allSignals = [...signals, ...llmSignals];
+        const allSignals = [...signals, ...llmResult.signals];
 
         // Take MAXIMUM of local and LLM scores
         const combinedScore = Math.max(localRiskScore, llmResult.riskScore);
@@ -230,6 +225,23 @@ export class ContentAgent extends BaseAgent {
         await page.goto(url, { waitUntil: "domcontentloaded" });
       } catch (error) {
         navigationError = error instanceof Error ? error.message : String(error);
+      }
+
+      // FIXED: If navigation failed completely, don't extract from blank/error page
+      if (navigationError && page.url() === "about:blank") {
+        return {
+          title: "",
+          forms: [],
+          links: [],
+          scripts: [],
+          metaTags: {},
+          textContent: "",
+          hasPasswordField: false,
+          hasLoginForm: false,
+          isBlocked: true,
+          isEmpty: true,
+          blockReason: navigationError,
+        };
       }
 
       const content = await this.extractContentFromPage(page, url);
@@ -476,22 +488,10 @@ export class ContentAgent extends BaseAgent {
       score += 35;
     }
 
-    // CHECK: Hidden elements
-    if (
-      content.textContent.includes("visibility:hidden") ||
-      content.textContent.includes("display:none") ||
-      content.textContent.includes("opacity:0")
-    ) {
-      signals.push(
-        this.createSignal(
-          "hidden_elements",
-          "medium",
-          true,
-          "Page contains hidden elements",
-        ),
-      );
-      score += 15;
-    }
+    // CHECK: Hidden elements — detect via computed styles, not textContent
+    // The old check looked for CSS strings in innerText which was useless
+    // This is now handled in extractContentFromPage via page.evaluate
+    // (We check for hidden form fields which is a real phishing indicator)
 
     return { score: Math.min(100, score) };
   }

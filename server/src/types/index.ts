@@ -26,6 +26,7 @@ export interface FinalVerdict {
   url: string;
   timestamp: number;
   screenshot?: string; // Base64 encoded screenshot from Tester Agent
+  modelComparison?: ModelComparison; // Dual-model consensus info
 }
 
 export interface ScanRequest {
@@ -49,7 +50,7 @@ export interface AgentLog {
 
 export interface PageContent {
   title: string;
-  forms: FormData[];
+  forms: PageFormData[];
   links: LinkData[];
   scripts: string[];
   metaTags: Record<string, string>;
@@ -58,7 +59,8 @@ export interface PageContent {
   hasLoginForm: boolean;
 }
 
-export interface FormData {
+// Renamed from FormData to PageFormData to avoid shadowing the global FormData
+export interface PageFormData {
   action: string;
   method: string;
   hasPasswordField: boolean;
@@ -97,11 +99,7 @@ export interface GroqRequest {
   temperature?: number;
   max_completion_tokens?: number;
   response_format?: {
-    type: "json_schema";
-    json_schema: {
-      name: string;
-      schema: object;
-    };
+    type: "json_object"; // Groq Llama models support json_object, NOT json_schema
   };
 }
 
@@ -159,4 +157,25 @@ export interface BrowserTestResult {
   formAnalysis: FormAnalysis[];
   // New: Logo Detection
   logoDetection?: LogoDetectionResult;
+  // Page content extracted during browser test (passed to Content/Heuristic agents)
+  pageContent?: PageContent;
+}
+
+// Dual-Model Consensus types
+export interface LLMAnalysisResult {
+  riskScore: number;
+  confidence: number;
+  signals: Signal[];
+  explanation: string;
+  model: string; // Which model produced this result
+  latencyMs: number;
+}
+
+export interface ModelComparison {
+  groqResult?: LLMAnalysisResult;
+  geminiResult?: LLMAnalysisResult;
+  consensusScore: number;
+  scoreDifference: number;
+  strategy: string; // Which consensus strategy was used
+  agreed: boolean; // Whether models agreed within threshold
 }

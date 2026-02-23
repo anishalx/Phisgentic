@@ -41,7 +41,7 @@ export class HeuristicAgent extends BaseAgent {
     const localAnalysis = this.performLocalAnalysis(url, pageContent, signals);
     localRiskScore = localAnalysis.score;
 
-    // Use LLM for deeper heuristic analysis
+    // Use LLM for deeper heuristic analysis (dual-model)
     try {
       const analysisData: Record<string, unknown> = {
         url,
@@ -59,15 +59,10 @@ export class HeuristicAgent extends BaseAgent {
         analysisData.hasPasswordField = pageContent.hasPasswordField;
       }
 
-      const llmResult = await this.groqClient.analyzeForAgent(
-        this.agentName,
-        this.systemPrompt,
-        analysisData,
-      );
+      const { result: llmResult } = await this.dualModelAnalyze(analysisData);
 
       if (llmResult) {
-        const llmSignals = (llmResult.signals as Signal[]) || [];
-        const allSignals = [...signals, ...llmSignals];
+        const allSignals = [...signals, ...llmResult.signals];
 
         const combinedScore = Math.round(
           localRiskScore * 0.3 + llmResult.riskScore * 0.7,

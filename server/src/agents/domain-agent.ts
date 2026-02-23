@@ -65,26 +65,22 @@ export class DomainAgent extends BaseAgent {
       );
     }
 
-    // Use LLM for deeper analysis
+    // Use LLM for deeper analysis (dual-model)
     try {
-      const llmResult = await this.groqClient.analyzeForAgent(
-        this.agentName,
-        this.systemPrompt,
-        {
-          domain: parsed.domain,
-          hostname: parsed.hostname,
-          subdomain: parsed.subdomain,
-          tld: parsed.tld,
-          isIP: parsed.isIP,
-          localSignals: signals.map((s) => ({
-            type: s.type,
-            severity: s.severity,
-            description: s.description,
-          })),
-          localRiskScore,
-          instruction: "Score aggressively. If suspicious, give 70+. If clearly phishing, give 90+.",
-        },
-      );
+      const { result: llmResult } = await this.dualModelAnalyze({
+        domain: parsed.domain,
+        hostname: parsed.hostname,
+        subdomain: parsed.subdomain,
+        tld: parsed.tld,
+        isIP: parsed.isIP,
+        localSignals: signals.map((s) => ({
+          type: s.type,
+          severity: s.severity,
+          description: s.description,
+        })),
+        localRiskScore,
+        instruction: "Score aggressively. If suspicious, give 70+. If clearly phishing, give 90+.",
+      });
 
       if (llmResult) {
         const llmSignals = (llmResult.signals as Signal[]) || [];
@@ -287,7 +283,8 @@ export class DomainAgent extends BaseAgent {
   private matchesSuspiciousHosting(hostname: string): string | null {
     const hostingPatterns = CONFIG.SUSPICIOUS_HOSTING_PATTERNS as readonly string[];
     for (const pattern of hostingPatterns) {
-      if (hostname.includes(pattern)) {
+      // Use proper domain matching: exact match or subdomain of the pattern
+      if (hostname === pattern || hostname.endsWith(`.${pattern}`)) {
         return pattern;
       }
     }
@@ -304,15 +301,31 @@ export class DomainAgent extends BaseAgent {
     const hostnameLower = hostname.toLowerCase();
 
     for (const brand of brands) {
-      // Check if brand name appears in domain but this is NOT the official domain
+      const brandName = brand.name;
+      
+      // For short brand names (<=3 chars like "ups", "dhl", "meta"),
+      // require word-boundary matching to avoid false positives
+      // e.g., "setup.com" should NOT match "ups", "metadata.io" should NOT match "meta"
+      let matches = false;
+      
+      if (brandName.length <= 3) {
+        // Short brand: require it appears as a distinct segment
+        // Split on dots and hyphens, check if any segment exactly equals the brand
+        const segments = hostnameLower.split(/[.\-]/);
+        matches = segments.some(seg => seg === brandName);
+      } else {
+        // Longer brand: substring match is acceptable
+        matches = domainLower.includes(brandName) || hostnameLower.includes(brandName);
+      }
+
       if (
-        (domainLower.includes(brand.name) || hostnameLower.includes(brand.name)) &&
+        matches &&
         !hostnameLower.endsWith(brand.domain) &&
         domainLower !== brand.domain
       ) {
         return {
           isImpersonation: true,
-          brand: brand.name,
+          brand: brandName,
           officialDomain: brand.domain,
         };
       }
@@ -322,11 +335,26 @@ export class DomainAgent extends BaseAgent {
 
   private checkBrandInSubdomain(domain: string, hostname: string): string | null {
     const brands = CONFIG.PROTECTED_BRANDS;
-    const subdomainPart = hostname.replace(domain, "").toLowerCase();
+    // Extract just the subdomain portion (everything before the registered domain)
+    // e.g., "paypal.login.evil.com" -> "paypal.login"
+    const subdomainPart = hostname.endsWith(domain) 
+      ? hostname.slice(0, -(domain.length + 1)).toLowerCase()  // +1 for the dot
+      : "";
+
+    if (!subdomainPart) return null;
+
+    const subdomainSegments = subdomainPart.split(".");
 
     for (const brand of brands) {
-      if (subdomainPart.includes(brand.name) && !hostname.endsWith(brand.domain)) {
-        return brand.name;
+      // For short brand names, require exact segment match
+      if (brand.name.length <= 3) {
+        if (subdomainSegments.some(seg => seg === brand.name) && !hostname.endsWith(brand.domain)) {
+          return brand.name;
+        }
+      } else {
+        if (subdomainPart.includes(brand.name) && !hostname.endsWith(brand.domain)) {
+          return brand.name;
+        }
       }
     }
     return null;

@@ -11,6 +11,15 @@ vi.mock("../api/groq-client.js", () => ({
   GroqClient: vi.fn(),
 }));
 
+// Mock the Gemini client (dual-model secondary)
+vi.mock("../api/gemini-client.js", () => ({
+  getGeminiClient: () => ({
+    analyzeForAgent: vi.fn().mockResolvedValue(null),
+    isAvailable: vi.fn().mockReturnValue(false),
+  }),
+  GeminiClient: vi.fn(),
+}));
+
 describe("HeuristicAgent", () => {
   let agent: HeuristicAgent;
 

@@ -55,70 +55,91 @@ export class Orchestrator {
 
     addLog("orchestrator", "Orchestrator", `Initiating multi-agent analysis of ${url}`, "info");
 
-    // Run Tester Agent first to get screenshot and behavioral data
+    // PERFORMANCE: Run ALL agents in parallel instead of waiting for TesterAgent first.
+    // URL and Domain agents don't need browser data — they start immediately.
+    // Content and Heuristic agents receive pageContent via a deferred promise
+    // that resolves when TesterAgent completes.
     addLog("testerAgent", "Browser Tester", "Launching headless browser...", "info");
-    let testerResult: (AgentResult & { screenshot?: string }) | null = null;
-    let pageContent: PageContent | undefined;
-    let screenshot: string | undefined;
-
-    try {
-      testerResult = await this.withTimeout(
-        this.testerAgent.analyze(url, externalPage),
-        CONFIG.ANALYSIS.TIMEOUT_MS,
-      );
-      if (testerResult) {
-        screenshot = testerResult.screenshot;
-        addLog("testerAgent", "Browser Tester", 
-          `Browser test complete - Risk: ${testerResult.riskScore}/100`, 
-          testerResult.riskScore > 50 ? "warning" : "success"
-        );
-      }
-    } catch (error) {
-      addLog("testerAgent", "Browser Tester", `Browser automation failed: ${error}`, "error");
-    }
-
-    // Run all other agents in parallel
     addLog("urlAgent", "URL Scanner", "Analyzing URL structure and patterns...", "info");
     addLog("domainAgent", "Domain Intelligence", "Checking domain reputation and blocklists...", "info");
     addLog("contentAgent", "Content Analyzer", "Scanning page content for threats...", "info");
     addLog("heuristicAgent", "Behavior Detector", "Detecting social engineering patterns...", "info");
 
-    const agentPromises = [
-      this.urlAgent.analyze(url),
-      this.domainAgent.analyze(url),
-      this.contentAgent.analyze({ url, pageContent, externalPage }),
-      this.heuristicAgent.analyze({ url, pageContent }),
+    // Create a deferred promise for pageContent so Content/Heuristic agents
+    // can await it while URL/Domain agents run independently
+    let resolvePageContent: (value: PageContent | undefined) => void;
+    const pageContentPromise = new Promise<PageContent | undefined>((resolve) => {
+      resolvePageContent = resolve;
+    });
+
+    let screenshot: string | undefined;
+    let testerResult: (AgentResult & { screenshot?: string; pageContent?: PageContent }) | null = null;
+
+    // Tester Agent promise — resolves the pageContent deferred when done
+    const testerPromise = this.withTimeout(
+      this.testerAgent.analyze(url, externalPage),
+      CONFIG.ANALYSIS.TIMEOUT_MS,
+    ).then((result) => {
+      testerResult = result;
+      if (result) {
+        screenshot = result.screenshot;
+        resolvePageContent!(result.pageContent);
+        addLog("testerAgent", "Browser Tester",
+          `Browser test complete - Risk: ${result.riskScore}/100`,
+          result.riskScore > 50 ? "warning" : "success"
+        );
+      } else {
+        resolvePageContent!(undefined);
+      }
+      return result;
+    }).catch((error) => {
+      resolvePageContent!(undefined);
+      addLog("testerAgent", "Browser Tester", `Browser automation failed: ${error}`, "error");
+      return null;
+    });
+
+    // Content Agent wrapper — awaits pageContent from TesterAgent, then runs
+    const contentPromise = pageContentPromise.then((pageContent) =>
+      this.contentAgent.analyze({ url, pageContent, externalPage })
+    );
+
+    // Heuristic Agent wrapper — awaits pageContent from TesterAgent, then runs
+    const heuristicPromise = pageContentPromise.then((pageContent) =>
+      this.heuristicAgent.analyze({ url, pageContent })
+    );
+
+    // Run ALL agents in parallel with individual timeouts
+    const allPromises = [
+      testerPromise,
+      this.withTimeout(this.urlAgent.analyze(url), CONFIG.ANALYSIS.TIMEOUT_MS),
+      this.withTimeout(this.domainAgent.analyze(url), CONFIG.ANALYSIS.TIMEOUT_MS),
+      this.withTimeout(contentPromise, CONFIG.ANALYSIS.TIMEOUT_MS),
+      this.withTimeout(heuristicPromise, CONFIG.ANALYSIS.TIMEOUT_MS),
     ];
 
-    // Wait for all agents with timeout
-    const results = await Promise.allSettled(
-      agentPromises.map((p) => this.withTimeout(p, CONFIG.ANALYSIS.TIMEOUT_MS)),
-    );
+    const results = await Promise.allSettled(allPromises);
 
     // Collect successful results
     const agentResults: AgentResult[] = [];
-
-    // Add tester result
-    if (testerResult) {
-      agentResults.push(testerResult);
-    }
-
-    // Process other agent results
-    const agentNames = ["URL Scanner", "Domain Intelligence", "Content Analyzer", "Behavior Detector"];
-    const agentIds = ["urlAgent", "domainAgent", "contentAgent", "heuristicAgent"];
+    const agentNames = ["Browser Tester", "URL Scanner", "Domain Intelligence", "Content Analyzer", "Behavior Detector"];
+    const agentIds = ["testerAgent", "urlAgent", "domainAgent", "contentAgent", "heuristicAgent"];
 
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
       if (result.status === "fulfilled" && result.value) {
         agentResults.push(result.value);
-        const riskLevel = result.value.riskScore > 60 ? "warning" : "success";
-        addLog(
-          agentIds[i], 
-          agentNames[i], 
-          `Analysis complete - Risk: ${result.value.riskScore}/100`, 
-          riskLevel
-        );
-      } else {
+        // Skip testerAgent log (already logged above in .then())
+        if (i > 0) {
+          const riskLevel = result.value.riskScore > 60 ? "warning" : "success";
+          addLog(
+            agentIds[i],
+            agentNames[i],
+            `Analysis complete - Risk: ${result.value.riskScore}/100`,
+            riskLevel
+          );
+        }
+      } else if (i > 0) {
+        // Skip testerAgent error (already logged above in .catch())
         addLog(agentIds[i], agentNames[i], "Analysis failed or timed out", "error");
       }
     }
@@ -191,7 +212,7 @@ export class Orchestrator {
         overallRiskScore: 0,
         confidence: 0.99,
         agentResults,
-        summary: "✅ SAFE - This is a verified trusted domain.",
+        summary: "SAFE - This is a verified trusted domain.",
         url,
         timestamp: Date.now(),
         screenshot,
@@ -310,14 +331,14 @@ export class Orchestrator {
       .map(s => s.description)
       .join("; ");
     
-    return `🚨 BLOCKED - Critical threat detected: ${reasons}. This URL exhibits characteristics of phishing/malware.`;
+    return `BLOCKED - Critical threat detected: ${reasons}. This URL exhibits characteristics of phishing/malware.`;
   }
 
   private generateHighRiskSummary(results: AgentResult[], maxScore: number): string {
     const highestAgent = results.find(r => r.riskScore === maxScore);
     const explanation = highestAgent?.explanation || "Multiple risk factors detected";
     
-    return `⛔ HIGH RISK (Score: ${maxScore}/100) - ${explanation}`;
+    return `HIGH RISK (Score: ${maxScore}/100) - ${explanation}`;
   }
 
   private generateConsensusSummary(suspiciousAgents: AgentResult[]): string {
@@ -329,7 +350,7 @@ export class Orchestrator {
       .map(s => s.description)
       .join("; ");
     
-    return `⚠️ BLOCKED - Multiple detection systems flagged this URL (${agentNames}). Concerns: ${topConcerns || "Suspicious patterns detected"}.`;
+    return `BLOCKED - Multiple detection systems flagged this URL (${agentNames}). Concerns: ${topConcerns || "Suspicious patterns detected"}.`;
   }
 
   private generateSummary(
@@ -344,11 +365,11 @@ export class Orchestrator {
     let summary = "";
 
     if (action === "block") {
-      summary = `🚨 DANGEROUS (Score: ${score}/100) - `;
+      summary = `DANGEROUS (Score: ${score}/100) - `;
     } else if (action === "warn") {
-      summary = `⚠️ SUSPICIOUS (Score: ${score}/100) - `;
+      summary = `SUSPICIOUS (Score: ${score}/100) - `;
     } else {
-      summary = `✅ SAFE (Score: ${score}/100) - `;
+      summary = `SAFE (Score: ${score}/100) - `;
     }
 
     if (criticalSignals.length > 0) {
@@ -370,16 +391,24 @@ export class Orchestrator {
     return summary.trim();
   }
 
+  /**
+   * FIXED: Timer leak — the setTimeout was never cleared if the promise resolved first.
+   * Now properly clears the timeout in all cases.
+   */
   private withTimeout<T>(
     promise: Promise<T>,
     timeoutMs: number,
   ): Promise<T | null> {
-    return Promise.race([
-      promise,
-      new Promise<null>((resolve) =>
-        setTimeout(() => resolve(null), timeoutMs),
-      ),
-    ]);
+    let timeoutId: ReturnType<typeof setTimeout>;
+    
+    const timeoutPromise = new Promise<null>((resolve) => {
+      timeoutId = setTimeout(() => resolve(null), timeoutMs);
+    });
+
+    return Promise.race([promise, timeoutPromise]).then((result) => {
+      clearTimeout(timeoutId);
+      return result;
+    });
   }
 }
 

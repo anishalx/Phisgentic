@@ -5,6 +5,13 @@ import type { PageContent, FinalVerdict, Message } from "../types";
 // Track if warning is shown
 let warningOverlay: HTMLElement | null = null;
 
+// Escape HTML to prevent XSS from malicious URLs/content
+function escapeHtml(str: string): string {
+  const div = document.createElement("div");
+  div.appendChild(document.createTextNode(str));
+  return div.innerHTML;
+}
+
 // Extract page content when DOM is ready
 function extractPageContent(): PageContent {
   const forms = Array.from(document.querySelectorAll("form")).map((form) => {
@@ -362,7 +369,7 @@ function showWarning(verdict: FinalVerdict): void {
             <path d="M12 8v4M12 16h.01"/>
           </svg>
         </div>
-        <span class="pg-badge">${riskLevel} RISK</span>
+        <span class="pg-badge">${escapeHtml(riskLevel)} RISK</span>
         <h1 class="pg-title">${isBlock ? "This site may steal your data" : "This site looks suspicious"}</h1>
         <p class="pg-subtitle">PhishGuard detected potential phishing indicators on this page.</p>
       </div>
@@ -370,11 +377,11 @@ function showWarning(verdict: FinalVerdict): void {
       <div class="pg-body">
         <div class="pg-url-box">
           <div class="pg-url-label">Blocked URL</div>
-          <div class="pg-url-text">${verdict.url}</div>
+          <div class="pg-url-text">${escapeHtml(verdict.url)}</div>
         </div>
         
         <div class="pg-reason">
-          ${verdict.summary}
+          ${escapeHtml(verdict.summary)}
         </div>
         
         <div class="pg-actions">
@@ -392,9 +399,9 @@ function showWarning(verdict: FinalVerdict): void {
             .map(
               (agent) => `
             <div class="pg-agent">
-              <span class="pg-agent-name">${agent.agentName}</span>
+              <span class="pg-agent-name">${escapeHtml(agent.agentName)}</span>
               <span class="pg-agent-score ${getScoreClass(agent.riskScore)}">
-                ${agent.riskScore}
+                ${escapeHtml(String(agent.riskScore))}
               </span>
             </div>
           `,

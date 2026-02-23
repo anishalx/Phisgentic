@@ -236,7 +236,7 @@ export class DomainAgent extends BaseAgent {
 
     // Check TLD
     const tld = "." + domain.split(".").pop();
-    if (CONFIG.SUSPICIOUS_TLDS.includes(tld)) {
+    if ((CONFIG.SUSPICIOUS_TLDS as readonly string[]).includes(tld)) {
       signals.push(
         this.createSignal(
           "suspicious_tld",

@@ -66,7 +66,8 @@ export async function removeFromWhitelist(domain: string): Promise<void> {
 
 export async function isWhitelisted(domain: string): Promise<boolean> {
   const whitelist = await getWhitelist();
-  return whitelist.some((d) => domain.endsWith(d));
+  // Exact match or proper subdomain match (e.g., "mail.google.com" matches "google.com")
+  return whitelist.some((d) => domain === d || domain.endsWith(`.${d}`));
 }
 
 export async function getAnalysisHistory(

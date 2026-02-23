@@ -15,6 +15,18 @@ export interface ParsedUrl {
   hasNonStandardPort: boolean;
 }
 
+// Well-known two-part TLDs
+const TWO_PART_TLDS = new Set([
+  "co.uk", "co.jp", "co.kr", "co.nz", "co.za", "co.in", "co.id", "co.il",
+  "com.au", "com.br", "com.cn", "com.mx", "com.tr", "com.sg", "com.ar", "com.tw",
+  "com.hk", "com.my", "com.pk", "com.ph", "com.vn", "com.ng", "com.eg", "com.co",
+  "org.uk", "org.au", "org.nz",
+  "net.au", "net.br", "net.nz",
+  "gov.uk", "gov.au", "gov.in",
+  "ac.uk", "ac.jp", "ac.kr",
+  "edu.au", "edu.cn",
+]);
+
 export function parseUrl(urlString: string): ParsedUrl | null {
   try {
     const url = new URL(urlString);
@@ -30,17 +42,14 @@ export function parseUrl(urlString: string): ParsedUrl | null {
     let tld = "";
 
     if (!isIP && parts.length >= 2) {
-      tld = "." + parts[parts.length - 1];
-
-      // Handle common two-part TLDs like .co.uk
-      if (
-        parts.length >= 3 &&
-        ["co", "com", "org", "net", "gov"].includes(parts[parts.length - 2])
-      ) {
-        tld = "." + parts.slice(-2).join(".");
+      // Check for two-part TLDs like .co.uk, .com.au
+      const lastTwo = parts.slice(-2).join(".");
+      if (parts.length >= 3 && TWO_PART_TLDS.has(lastTwo)) {
+        tld = "." + lastTwo;
         domain = parts.slice(-3).join(".");
         subdomain = parts.slice(0, -3).join(".");
       } else {
+        tld = "." + parts[parts.length - 1];
         domain = parts.slice(-2).join(".");
         subdomain = parts.slice(0, -2).join(".");
       }
@@ -132,14 +141,21 @@ export function isSimilarToBrand(
   domain: string,
   brands: string[],
 ): { isSimilar: boolean; brand?: string; distance?: number } {
-  const cleanDomain = domain.replace(/[^a-z]/gi, "").toLowerCase();
+  // Strip TLD from domain before comparing (e.g., "paypa1.com" -> "paypa1")
+  const parsed = parseUrl(`https://${domain}`);
+  const domainWithoutTld = parsed
+    ? domain.replace(new RegExp(`\\${parsed.tld}$`), "").replace(/[^a-z]/gi, "").toLowerCase()
+    : domain.replace(/[^a-z]/gi, "").toLowerCase();
 
   for (const brand of brands) {
     const cleanBrand = brand.replace(/[^a-z]/gi, "").toLowerCase();
-    const distance = levenshteinDistance(cleanDomain, cleanBrand);
+    const distance = levenshteinDistance(domainWithoutTld, cleanBrand);
+
+    // Adaptive threshold: short brands (<=4 chars) only allow distance 1
+    const maxDistance = cleanBrand.length <= 4 ? 1 : 2;
 
     // If distance is small but not zero, it might be typosquatting
-    if (distance > 0 && distance <= 2 && cleanDomain !== cleanBrand) {
+    if (distance > 0 && distance <= maxDistance && domainWithoutTld !== cleanBrand) {
       return { isSimilar: true, brand, distance };
     }
   }

@@ -7,11 +7,26 @@ export const CONFIG = {
   // Server Configuration
   PORT: parseInt(process.env.PORT || "3001", 10),
   
-  // Groq API Configuration
+  // Groq API Configuration (Primary LLM)
   GROQ_API_URL: "https://api.groq.com/openai/v1/chat/completions",
   GROQ_API_KEY: process.env.GROQ_API_KEY || "",
   GROQ_MODEL: "llama-3.3-70b-versatile",
   GROQ_VISION_MODEL: "llama-3.2-11b-vision-preview", // Vision-capable model for logo detection
+
+  // Gemini API Configuration (Secondary LLM for dual-model consensus)
+  GEMINI_API_URL: "https://generativelanguage.googleapis.com/v1beta/models",
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY || "",
+  GEMINI_MODEL: "gemini-2.0-flash",
+
+  // Dual-Model Consensus Settings
+  DUAL_MODEL: {
+    ENABLED: process.env.DUAL_MODEL_ENABLED !== "false", // Enabled by default
+    CONSENSUS_THRESHOLD: 15, // Max score difference for auto-consensus
+    DISAGREEMENT_STRATEGY: "conservative" as "conservative" | "average" | "max",
+    // "conservative" = take higher score when models disagree significantly
+    // "average" = average both scores
+    // "max" = take the maximum score
+  },
 
   // Agent weights for final scoring (higher = more influence)
   AGENT_WEIGHTS: {
@@ -51,7 +66,7 @@ export const CONFIG = {
 
   // Analysis settings
   ANALYSIS: {
-    TIMEOUT_MS: 30000,
+    TIMEOUT_MS: 45000, // 45s per-agent timeout (up from 30s; LLM timeout is 20s)
     MAX_CONTENT_LENGTH: 50000,
     LLM_TEMPERATURE: 0.1, // Lower = more deterministic
     LLM_MAX_TOKENS: 1000,
@@ -77,22 +92,12 @@ export const CONFIG = {
     "wikipedia.org",
   ],
 
-  // Known phishing/malware domains (instant block) - Sample from OpenPhish/PhishTank
+  // Known phishing/malware domains (instant block)
+  // IMPORTANT: Only include domains that are EXCLUSIVELY used for malicious purposes.
+  // Do NOT include legitimate hosting platforms (Vercel, Netlify, Heroku, etc.)
+  // Those belong in SUSPICIOUS_HOSTING_PATTERNS with a lower score.
   BLOCKLIST_DOMAINS: [
-    // Common phishing hosting
-    "000webhostapp.com",
-    "weebly.com",
-    "wixsite.com",
-    "blogspot.com",
-    "sites.google.com",
-    "forms.gle",
-    "netlify.app",
-    "vercel.app",
-    "herokuapp.com",
-    "glitch.me",
-    "repl.co",
-    "firebaseapp.com",
-    // Free subdomain services abused for phishing
+    // Free dynamic DNS services heavily abused for phishing
     "duckdns.org",
     "ddns.net",
     "no-ip.org",
@@ -101,6 +106,8 @@ export const CONFIG = {
     "sytes.net",
     "serveblog.net",
     "serveftp.com",
+    // Free hosting with extremely high abuse rates
+    "000webhostapp.com",
   ],
 
   // Suspicious TLDs (high-risk) - Expanded list
@@ -165,34 +172,36 @@ export const CONFIG = {
   ],
 
   // Brand names for impersonation detection
+  // NOTE: Brands with names <= 3 chars (ups, dhl, meta) need exact-match logic
+  // in domain-agent.ts to avoid false positives (e.g., "setup.com" matching "ups").
   PROTECTED_BRANDS: [
-    { name: "paypal", domain: "paypal.com" },
-    { name: "amazon", domain: "amazon.com" },
-    { name: "apple", domain: "apple.com" },
-    { name: "microsoft", domain: "microsoft.com" },
-    { name: "google", domain: "google.com" },
-    { name: "facebook", domain: "facebook.com" },
-    { name: "meta", domain: "meta.com" },
-    { name: "instagram", domain: "instagram.com" },
-    { name: "netflix", domain: "netflix.com" },
-    { name: "spotify", domain: "spotify.com" },
-    { name: "linkedin", domain: "linkedin.com" },
-    { name: "twitter", domain: "twitter.com" },
-    { name: "chase", domain: "chase.com" },
-    { name: "wellsfargo", domain: "wellsfargo.com" },
-    { name: "bankofamerica", domain: "bankofamerica.com" },
-    { name: "usps", domain: "usps.com" },
-    { name: "fedex", domain: "fedex.com" },
-    { name: "ups", domain: "ups.com" },
-    { name: "dhl", domain: "dhl.com" },
-    { name: "walmart", domain: "walmart.com" },
-    { name: "ebay", domain: "ebay.com" },
-    { name: "dropbox", domain: "dropbox.com" },
-    { name: "outlook", domain: "outlook.com" },
-    { name: "office365", domain: "office.com" },
-    { name: "icloud", domain: "icloud.com" },
-    { name: "coinbase", domain: "coinbase.com" },
-    { name: "binance", domain: "binance.com" },
+    { name: "paypal", domain: "paypal.com", minLength: 4 },
+    { name: "amazon", domain: "amazon.com", minLength: 4 },
+    { name: "apple", domain: "apple.com", minLength: 4 },
+    { name: "microsoft", domain: "microsoft.com", minLength: 4 },
+    { name: "google", domain: "google.com", minLength: 4 },
+    { name: "facebook", domain: "facebook.com", minLength: 4 },
+    { name: "meta", domain: "meta.com", minLength: 4 },
+    { name: "instagram", domain: "instagram.com", minLength: 4 },
+    { name: "netflix", domain: "netflix.com", minLength: 4 },
+    { name: "spotify", domain: "spotify.com", minLength: 4 },
+    { name: "linkedin", domain: "linkedin.com", minLength: 4 },
+    { name: "twitter", domain: "twitter.com", minLength: 4 },
+    { name: "chase", domain: "chase.com", minLength: 4 },
+    { name: "wellsfargo", domain: "wellsfargo.com", minLength: 4 },
+    { name: "bankofamerica", domain: "bankofamerica.com", minLength: 4 },
+    { name: "usps", domain: "usps.com", minLength: 4 },
+    { name: "fedex", domain: "fedex.com", minLength: 4 },
+    { name: "ups", domain: "ups.com", minLength: 3 },
+    { name: "dhl", domain: "dhl.com", minLength: 3 },
+    { name: "walmart", domain: "walmart.com", minLength: 4 },
+    { name: "ebay", domain: "ebay.com", minLength: 4 },
+    { name: "dropbox", domain: "dropbox.com", minLength: 4 },
+    { name: "outlook", domain: "outlook.com", minLength: 4 },
+    { name: "office365", domain: "office.com", minLength: 4 },
+    { name: "icloud", domain: "icloud.com", minLength: 4 },
+    { name: "coinbase", domain: "coinbase.com", minLength: 4 },
+    { name: "binance", domain: "binance.com", minLength: 4 },
   ],
 
   // Brand to legitimate domains mapping for logo detection

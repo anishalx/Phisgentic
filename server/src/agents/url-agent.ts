@@ -53,33 +53,28 @@ export class UrlAgent extends BaseAgent {
     const localAnalysis = this.performLocalAnalysis(parsed, signals);
     localRiskScore = localAnalysis.score;
 
-    // Use LLM for deeper analysis
+    // Use LLM for deeper analysis (dual-model)
     try {
-      const llmResult = await this.groqClient.analyzeForAgent(
-        this.agentName,
-        this.systemPrompt,
-        {
-          url,
-          parsed: {
-            hostname: parsed.hostname,
-            domain: parsed.domain,
-            subdomain: parsed.subdomain,
-            tld: parsed.tld,
-            pathname: parsed.pathname,
-            isIP: parsed.isIP,
-            protocol: parsed.protocol,
-          },
-          localSignals: signals.map((s) => ({
-            type: s.type,
-            severity: s.severity,
-          })),
+      const { result: llmResult } = await this.dualModelAnalyze({
+        url,
+        parsed: {
+          hostname: parsed.hostname,
+          domain: parsed.domain,
+          subdomain: parsed.subdomain,
+          tld: parsed.tld,
+          pathname: parsed.pathname,
+          isIP: parsed.isIP,
+          protocol: parsed.protocol,
         },
-      );
+        localSignals: signals.map((s) => ({
+          type: s.type,
+          severity: s.severity,
+        })),
+      });
 
       if (llmResult) {
-        // Merge LLM signals with local signals
-        const llmSignals = (llmResult.signals as Signal[]) || [];
-        const allSignals = [...signals, ...llmSignals];
+        // Merge LLM signals with local signals (signals are already properly typed from LLMAnalysisResult)
+        const allSignals = [...signals, ...llmResult.signals];
 
         // Combine scores (weighted average: 40% local, 60% LLM)
         const combinedScore = Math.round(

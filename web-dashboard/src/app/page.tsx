@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { 
   ScanningInterface, 
@@ -8,7 +8,7 @@ import {
   ResultCard, 
   AgentBreakdown 
 } from "@/components";
-import { scanUrl } from "@/lib/api";
+import { scanUrlWithStream } from "@/lib/api";
 import type { FinalVerdict, AgentLog, ScanStatus } from "@/types";
 
 export default function Home() {
@@ -16,8 +16,15 @@ export default function Home() {
   const [logs, setLogs] = useState<AgentLog[]>([]);
   const [verdict, setVerdict] = useState<FinalVerdict | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   const handleScan = useCallback(async (url: string) => {
+    // Clean up any previous SSE connection
+    if (cleanupRef.current) {
+      cleanupRef.current();
+      cleanupRef.current = null;
+    }
+
     // Reset state
     setStatus("scanning");
     setLogs([]);
@@ -33,21 +40,30 @@ export default function Home() {
       type: "info",
     }]);
 
-    try {
-      const response = await scanUrl(url);
-
-      if (response.success && response.verdict) {
-        setVerdict(response.verdict);
-        setLogs(response.logs);
-        setStatus("complete");
-      } else {
-        setError(response.error || "Unknown error");
+    // Use SSE streaming for real-time updates
+    const cleanup = scanUrlWithStream(
+      url,
+      // onLog — append each log as it arrives
+      (log) => {
+        setLogs((prev) => [...prev, log]);
+      },
+      // onResult — final verdict
+      (result) => {
+        setVerdict(result);
+      },
+      // onError
+      (errMsg) => {
+        setError(errMsg);
         setStatus("error");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Scan failed");
-      setStatus("error");
-    }
+      },
+      // onComplete
+      () => {
+        setStatus("complete");
+        cleanupRef.current = null;
+      },
+    );
+
+    cleanupRef.current = cleanup;
   }, []);
 
   return (
@@ -91,7 +107,7 @@ export default function Home() {
             PhishGuard AI - Multi-Agent Phishing Detection System
           </p>
           <p className="mt-1">
-            Powered by Groq AI (Llama 3.3 70B)
+            Powered by Dual-Model AI (Groq Llama 3.3 + Google Gemini Flash)
           </p>
         </motion.footer>
       </div>

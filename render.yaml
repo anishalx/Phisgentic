@@ -19,7 +19,11 @@ services:
       - key: DISABLE_TESTER_AGENT
         value: "true"
       - key: GROQ_API_KEY
-        sync: false  # You'll set this manually in Render dashboard
+        sync: false  # Set manually in Render dashboard
+      - key: GEMINI_API_KEY
+        sync: false  # Set manually in Render dashboard (for dual-model analysis)
+      - key: DUAL_MODEL_ENABLED
+        value: "true"
 
   # Next.js Web Dashboard
   - type: web
@@ -34,7 +38,4 @@ services:
       - key: NODE_ENV
         value: production
       - key: NEXT_PUBLIC_API_URL
-        fromService:
-          name: phishguard-api
-          type: web
-          property: host
+        sync: false  # Set manually in Render dashboard to https://phishguard-api.onrender.com

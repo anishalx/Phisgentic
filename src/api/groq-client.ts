@@ -1,7 +1,13 @@
 // Groq API Client for LLM-powered analysis
+// NOTE: This client is NOT used by the extension at runtime.
+// All LLM analysis is performed by the backend API server.
+// The extension communicates with the server via REST/SSE, not directly with Groq.
 
 import { CONFIG } from "../config";
 import type { GroqRequest, GroqResponse, GroqMessage } from "../types";
+
+// Groq API endpoint (not in CONFIG since extension doesn't call Groq directly)
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 export class GroqClient {
   private apiUrl: string;
@@ -9,8 +15,8 @@ export class GroqClient {
   private model: string;
 
   constructor(apiKey?: string) {
-    this.apiUrl = CONFIG.GROQ_API_URL;
-    this.apiKey = apiKey || CONFIG.GROQ_API_KEY;
+    this.apiUrl = GROQ_API_URL;
+    this.apiKey = apiKey || "";
     this.model = CONFIG.GROQ_MODEL;
   }
 

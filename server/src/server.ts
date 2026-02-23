@@ -8,6 +8,7 @@ import { z } from "zod";
 import { CONFIG } from "./config/index.js";
 import { getOrchestrator } from "./agents/orchestrator.js";
 import { closeBrowser } from "./agents/tester-agent.js";
+import { getScanCache } from "./utils/cache.js";
 import type { ScanRequest, ScanResponse, AgentLog } from "./types/index.js";
 
 const app = express();
@@ -25,8 +26,29 @@ const limiter = rateLimit({
 });
 app.use("/api/scan", limiter);
 
-// CORS and JSON parsing
-app.use(cors());
+// CORS - restrict to known origins in production
+const allowedOrigins = [
+  "http://localhost:3000",  // Next.js dashboard dev
+  "http://localhost:3001",  // Self (for health checks)
+  `http://localhost:${CONFIG.PORT}`,
+  process.env.DASHBOARD_URL, // Production dashboard URL
+].filter(Boolean) as string[];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g., curl, server-to-server, extensions)
+      if (!origin) return callback(null, true);
+      // Chrome extensions have chrome-extension:// origin — allow all
+      if (origin.startsWith("chrome-extension://")) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      // In development, allow all origins
+      if (process.env.NODE_ENV !== "production") return callback(null, true);
+      callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  }),
+);
 app.use(express.json({ limit: "1mb" }));
 
 // Input validation schema
@@ -36,7 +58,12 @@ const scanRequestSchema = z.object({
 
 // Health check endpoint
 app.get("/api/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok", timestamp: Date.now() });
+  const cache = getScanCache();
+  res.json({
+    status: "ok",
+    timestamp: Date.now(),
+    cache: cache.stats(),
+  });
 });
 
 // Main scan endpoint
@@ -56,11 +83,27 @@ app.post("/api/scan", async (req: Request, res: Response) => {
 
   const { url } = parseResult.data;
 
+  // Check cache first
+  const cache = getScanCache();
+  const cached = cache.get(url);
+  if (cached) {
+    console.log(`[API] Cache hit for: ${url}`);
+    res.json({
+      success: true,
+      verdict: cached.verdict,
+      logs: cached.logs,
+    } as ScanResponse);
+    return;
+  }
+
   console.log(`[API] Scanning URL: ${url}`);
 
   try {
     const orchestrator = getOrchestrator();
     const result = await orchestrator.analyzeUrl(url);
+
+    // Store in cache
+    cache.set(url, result.verdict, result.logs);
 
     res.json({
       success: true,
@@ -96,49 +139,109 @@ app.get("/api/scan/stream", async (req: Request, res: Response) => {
 
   console.log(`[API] Starting stream scan for: ${url}`);
 
-  const onLog = (log: AgentLog) => {
-    res.write(`event: log\ndata: ${JSON.stringify(log)}\n\n`);
+  // Track whether client is still connected
+  let clientConnected = true;
+  const abortController = new AbortController();
+
+  req.on("close", () => {
+    clientConnected = false;
+    abortController.abort();
+    console.log(`[API] Client disconnected from stream scan for: ${url}`);
+  });
+
+  const safeSend = (event: string, data: string) => {
+    if (clientConnected && !res.writableEnded) {
+      try {
+        res.write(`event: ${event}\ndata: ${data}\n\n`);
+      } catch {
+        clientConnected = false;
+      }
+    }
   };
+
+  // Check cache — if cached, replay logs and result immediately
+  const cache = getScanCache();
+  const cached = cache.get(url);
+  if (cached) {
+    console.log(`[API] Stream cache hit for: ${url}`);
+    for (const log of cached.logs) {
+      safeSend("log", JSON.stringify(log));
+    }
+    safeSend("result", JSON.stringify(cached.verdict));
+    safeSend("done", "{}");
+    if (!res.writableEnded) res.end();
+    return;
+  }
+
+  const onLog = (log: AgentLog) => {
+    safeSend("log", JSON.stringify(log));
+  };
+
+  // Server-side timeout: auto-end SSE connection after 60s to prevent hanging
+  const sseTimeout = setTimeout(() => {
+    if (clientConnected && !res.writableEnded) {
+      console.log(`[API] SSE timeout for: ${url}`);
+      safeSend("error", JSON.stringify({ error: "Analysis timed out" }));
+      if (!res.writableEnded) res.end();
+      clientConnected = false;
+    }
+  }, 60_000);
 
   try {
     const orchestrator = getOrchestrator();
     const result = await orchestrator.analyzeUrl(url, onLog);
 
-    // Send final result
-    res.write(`event: result\ndata: ${JSON.stringify(result.verdict)}\n\n`);
-    res.write(`event: done\ndata: {}\n\n`);
-    res.end();
+    // Store in cache
+    cache.set(url, result.verdict, result.logs);
+
+    // Send final result only if client is still connected
+    safeSend("result", JSON.stringify(result.verdict));
+    safeSend("done", "{}");
+    if (!res.writableEnded) res.end();
   } catch (error) {
+    if (!clientConnected) {
+      // Client already disconnected — nothing to send
+      console.log(`[API] Scan aborted (client disconnected): ${url}`);
+      return;
+    }
     console.error("[API] Stream scan error:", error);
-    res.write(
-      `event: error\ndata: ${JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" })}\n\n`,
-    );
-    res.end();
+    safeSend("error", JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }));
+    if (!res.writableEnded) res.end();
+  } finally {
+    clearTimeout(sseTimeout);
   }
 });
 
 // Start server
 const server = app.listen(CONFIG.PORT, () => {
   console.log(`
-╔════════════════════════════════════════════════════════╗
-║                                                        ║
-║   PhishGuard AI - Multi-Agent Phishing Detection API   ║
-║                                                        ║
-╠════════════════════════════════════════════════════════╣
-║                                                        ║
-║   Server running on port ${CONFIG.PORT}                        ║
-║                                                        ║
-║   Endpoints:                                           ║
-║   - POST /api/scan     - Analyze a URL                 ║
-║   - GET  /api/scan/stream?url=... - SSE stream scan    ║
-║   - GET  /api/health   - Health check                  ║
-║                                                        ║
-║   Security:                                            ║
-║   - Rate limiting: 30 req/min per IP                   ║
-║   - Helmet security headers enabled                    ║
-║   - Input validation with Zod                          ║
-║                                                        ║
-╚════════════════════════════════════════════════════════╝
+╔═══════════════════════════════════════════════════════════╗
+║                                                           ║
+║   PhishGuard AI - Multi-Agent Phishing Detection API      ║
+║   Dual-Model Consensus: Groq Llama + Google Gemini Flash  ║
+║                                                           ║
+╠═══════════════════════════════════════════════════════════╣
+║                                                           ║
+║   Server running on port ${String(CONFIG.PORT).padEnd(34)}║
+║                                                           ║
+║   Endpoints:                                              ║
+║   - POST /api/scan          - Analyze a URL               ║
+║   - GET  /api/scan/stream   - SSE stream scan             ║
+║   - GET  /api/health        - Health check + cache stats   ║
+║                                                           ║
+║   Performance:                                            ║
+║   - LRU scan cache (5min TTL, 100 entries)                ║
+║   - LLM rate limiting (Groq 28/min, Gemini 14/min)       ║
+║   - Parallel agent execution (all 5 agents)               ║
+║   - Content truncation for LLM payloads                   ║
+║   - SSE server-side timeout (60s)                         ║
+║                                                           ║
+║   Security:                                               ║
+║   - Rate limiting: 30 req/min per IP                      ║
+║   - Helmet security headers enabled                       ║
+║   - Input validation with Zod                             ║
+║                                                           ║
+╚═══════════════════════════════════════════════════════════╝
   `);
 });
 

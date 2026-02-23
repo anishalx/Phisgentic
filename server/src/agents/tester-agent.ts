@@ -70,7 +70,7 @@ export class TesterAgent extends BaseAgent {
     super("testerAgent", "Tester Agent", SYSTEM_PROMPT);
   }
 
-  async analyze(url: string, externalPage?: import("playwright").Page): Promise<AgentResult & { screenshot?: string }> {
+  async analyze(url: string, externalPage?: import("playwright").Page): Promise<AgentResult & { screenshot?: string; pageContent?: import("../types/index.js").PageContent }> {
     const startTime = Date.now();
     const signals: Signal[] = [];
     let localRiskScore = 0;
@@ -119,7 +119,7 @@ export class TesterAgent extends BaseAgent {
     }
 
     // Analyze test results locally
-    localRiskScore = this.analyzeTestResults(testResult, signals);
+    localRiskScore = this.analyzeTestResults(testResult, signals, url);
 
     // Vision-based Logo Detection (runs in parallel with LLM analysis)
     let logoDetectionPromise: Promise<LogoDetectionResult | null> = Promise.resolve(null);
@@ -133,35 +133,30 @@ export class TesterAgent extends BaseAgent {
         });
     }
 
-    // Use LLM for deeper analysis
+    // Use LLM for deeper analysis (dual-model)
     try {
-      const llmResult = await this.groqClient.analyzeForAgent(
-        this.agentName,
-        this.systemPrompt,
-        {
-          originalUrl: url,
-          finalUrl: testResult.finalUrl,
-          redirectCount: testResult.redirectChain.length,
-          redirectChain: testResult.redirectChain,
-          hasPopups: testResult.hasPopups,
-          hasOverlays: testResult.hasOverlays,
-          downloadAttempted: testResult.downloadAttempted,
-          permissionRequests: testResult.permissionRequests,
-          consoleErrorCount: testResult.consoleErrors.length,
-          networkErrorCount: testResult.networkErrors.length,
-          loadTimeMs: testResult.loadTimeMs,
-          safetyWarning: testResult.safetyWarning,
-          localSignals: signals.map((s) => ({
-            type: s.type,
-            severity: s.severity,
-            description: s.description,
-          })),
-        },
-      );
+      const { result: llmResult } = await this.dualModelAnalyze({
+        originalUrl: url,
+        finalUrl: testResult.finalUrl,
+        redirectCount: testResult.redirectChain.length,
+        redirectChain: testResult.redirectChain,
+        hasPopups: testResult.hasPopups,
+        hasOverlays: testResult.hasOverlays,
+        downloadAttempted: testResult.downloadAttempted,
+        permissionRequests: testResult.permissionRequests,
+        consoleErrorCount: testResult.consoleErrors.length,
+        networkErrorCount: testResult.networkErrors.length,
+        loadTimeMs: testResult.loadTimeMs,
+        safetyWarning: testResult.safetyWarning,
+        localSignals: signals.map((s) => ({
+          type: s.type,
+          severity: s.severity,
+          description: s.description,
+        })),
+      });
 
       if (llmResult) {
-        const llmSignals = (llmResult.signals as Signal[]) || [];
-        let allSignals = [...signals, ...llmSignals];
+        let allSignals = [...signals, ...llmResult.signals];
         let finalScore = Math.round(localRiskScore * 0.4 + llmResult.riskScore * 0.6);
 
         // Wait for logo detection result
@@ -252,24 +247,32 @@ export class TesterAgent extends BaseAgent {
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       });
 
-      // Track permission requests
-      context.on("page", (page) => {
-        page.on("dialog", async (dialog) => {
-          permissionRequests.push(dialog.type());
-          hasPopups = true;
-          await dialog.dismiss();
-        });
+      const page = await context.newPage();
+      page.setDefaultTimeout(CONFIG.PLAYWRIGHT.TIMEOUT);
+
+      // FIXED: Attach dialog/download listeners to the MAIN page, not just popup pages.
+      // context.on("page") only fires for NEW popup windows, missing main page events.
+      page.on("dialog", async (dialog) => {
+        permissionRequests.push(dialog.type());
+        hasPopups = true;
+        await dialog.dismiss();
       });
 
-      // Track downloads
-      context.on("page", (page) => {
-        page.on("download", () => {
+      page.on("download", () => {
+        downloadAttempted = true;
+      });
+
+      // Also track popups from new pages
+      context.on("page", (newPage) => {
+        hasPopups = true;
+        newPage.on("dialog", async (dialog) => {
+          permissionRequests.push(dialog.type());
+          await dialog.dismiss();
+        });
+        newPage.on("download", () => {
           downloadAttempted = true;
         });
       });
-
-      const page = await context.newPage();
-      page.setDefaultTimeout(CONFIG.PLAYWRIGHT.TIMEOUT);
 
       // Track console errors
       page.on("console", (msg) => {
@@ -283,11 +286,23 @@ export class TesterAgent extends BaseAgent {
         networkErrors.push(`${request.url()} - ${request.failure()?.errorText}`);
       });
 
-      // Track redirects
+      // Track redirects — capture the Location header (destination), not source URL
       page.on("response", (response) => {
         const status = response.status();
         if (status >= 300 && status < 400) {
-          redirectChain.push(response.url());
+          const location = response.headers()["location"];
+          if (location) {
+            // Resolve relative URLs
+            try {
+              const resolved = new URL(location, response.url()).href;
+              redirectChain.push(resolved);
+            } catch {
+              redirectChain.push(location);
+            }
+          } else {
+            // Fallback: record source URL if no Location header
+            redirectChain.push(response.url());
+          }
         }
       });
 
@@ -409,6 +424,58 @@ export class TesterAgent extends BaseAgent {
         // Ignore form analysis errors
       }
 
+      // Extract page content for sharing with Content and Heuristic agents
+      let pageContent: import("../types/index.js").PageContent | undefined;
+      try {
+        pageContent = await page.evaluate(() => {
+          const forms = Array.from(document.forms).map((form: HTMLFormElement) => ({
+            action: form.action || "",
+            method: form.method || "get",
+            hasPasswordField: form.querySelector('input[type="password"]') !== null,
+            inputTypes: Array.from(form.querySelectorAll("input")).map(
+              (input) => (input as HTMLInputElement).type,
+            ),
+          }));
+
+          const links = Array.from(document.querySelectorAll("a[href]")).map((a) => {
+            const anchor = a as HTMLAnchorElement;
+            const href = anchor.href;
+            const currentHost = window.location.hostname;
+            let isExternal = false;
+            try {
+              isExternal = new URL(href).hostname !== currentHost;
+            } catch {
+              isExternal = false;
+            }
+            return { href, text: a.textContent?.trim() || "", isExternal };
+          });
+
+          const metaTags: Record<string, string> = {};
+          document.querySelectorAll("meta").forEach((meta) => {
+            const name = meta.getAttribute("name") || meta.getAttribute("property");
+            const contentAttr = meta.getAttribute("content");
+            if (name && contentAttr) metaTags[name] = contentAttr;
+          });
+
+          return {
+            title: document.title || "",
+            forms,
+            links,
+            scripts: Array.from(document.querySelectorAll("script[src]")).map(
+              (s) => (s as HTMLScriptElement).src,
+            ),
+            metaTags,
+            textContent: document.body?.innerText?.substring(0, 10000) || "",
+            hasPasswordField: document.querySelector('input[type="password"]') !== null,
+            hasLoginForm: document.querySelector(
+              'form input[type="password"], form input[name*="password"]'
+            ) !== null,
+          };
+        });
+      } catch {
+        // Page content extraction failed — not critical
+      }
+
       return {
         screenshot,
         finalUrl,
@@ -422,6 +489,7 @@ export class TesterAgent extends BaseAgent {
         loadTimeMs,
         safetyWarning,
         formAnalysis,
+        pageContent,
       };
     } finally {
       // Close context to free resources (but keep browser running)
@@ -539,6 +607,56 @@ export class TesterAgent extends BaseAgent {
       // Ignore form analysis errors
     }
 
+    // Extract page content for sharing with Content and Heuristic agents
+    let pageContent: import("../types/index.js").PageContent | undefined;
+    try {
+      pageContent = await page.evaluate(() => {
+        const forms = Array.from(document.forms).map((form: HTMLFormElement) => ({
+          action: form.action || "",
+          method: form.method || "get",
+          hasPasswordField: form.querySelector('input[type="password"]') !== null,
+          inputTypes: Array.from(form.querySelectorAll("input")).map(
+            (input) => (input as HTMLInputElement).type,
+          ),
+        }));
+
+        const links = Array.from(document.querySelectorAll("a[href]")).map((a) => {
+          const anchor = a as HTMLAnchorElement;
+          const href = anchor.href;
+          const currentHost = window.location.hostname;
+          let isExternal = false;
+          try {
+            isExternal = new URL(href).hostname !== currentHost;
+          } catch {
+            isExternal = false;
+          }
+          return { href, text: a.textContent?.trim() || "", isExternal };
+        });
+
+        const metaTags: Record<string, string> = {};
+        document.querySelectorAll("meta").forEach((meta) => {
+          const name = meta.getAttribute("name") || meta.getAttribute("property");
+          const contentAttr = meta.getAttribute("content");
+          if (name && contentAttr) metaTags[name] = contentAttr;
+        });
+
+        return {
+          title: document.title || "",
+          forms,
+          links,
+          scripts: Array.from(document.querySelectorAll("script[src]")).map(
+            (s) => (s as HTMLScriptElement).src,
+          ),
+          metaTags,
+          textContent: document.body?.innerText?.substring(0, 10000) || "",
+          hasPasswordField: document.querySelector('input[type="password"]') !== null,
+          hasLoginForm: !!document.querySelector('form input[type="password"]'),
+        };
+      });
+    } catch {
+      // Ignore page content extraction errors
+    }
+
     // Clean up listener
     page.off("console", onConsoleError);
 
@@ -554,12 +672,14 @@ export class TesterAgent extends BaseAgent {
       networkErrors,
       loadTimeMs,
       formAnalysis,
+      pageContent,
     };
   }
 
   private analyzeTestResults(
     result: BrowserTestResult,
     signals: Signal[],
+    originalUrl: string,
   ): number {
     let score = 0;
 
@@ -587,8 +707,10 @@ export class TesterAgent extends BaseAgent {
     }
 
     // Check for cross-domain redirects (but not www variants)
+    // FIXED: Compare the ORIGINAL url against the final url, not redirect chain[0] against finalUrl
+    // When there are no HTTP redirects, chain is empty, so we must use the original URL
     try {
-      const originalHost = new URL(result.redirectChain[0] || result.finalUrl).hostname.toLowerCase();
+      const originalHost = new URL(result.redirectChain[0] || originalUrl).hostname.toLowerCase();
       const finalHost = new URL(result.finalUrl).hostname.toLowerCase();
       
       // Normalize www prefix for comparison

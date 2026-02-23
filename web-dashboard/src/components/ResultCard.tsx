@@ -129,26 +129,26 @@ export function ResultCard({ verdict }: ResultCardProps) {
             
             {/* Score Gauge */}
             <div className="relative w-20 h-20 sm:w-28 sm:h-28">
-              <svg className="w-full h-full transform -rotate-90">
+              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 120 120">
                 <circle
-                  cx="50%"
-                  cy="50%"
-                  r="40%"
+                  cx="60"
+                  cy="60"
+                  r="50"
                   fill="none"
                   stroke="rgba(0,0,0,0.08)"
                   strokeWidth="10"
                 />
                 <motion.circle
-                  cx="50%"
-                  cy="50%"
-                  r="40%"
+                  cx="60"
+                  cy="60"
+                  r="50"
                   fill="none"
                   strokeWidth="10"
                   strokeLinecap="round"
                   className={styles.gaugeClass}
-                  initial={{ strokeDasharray: "0 251.2" }}
+                  initial={{ strokeDasharray: `0 ${2 * Math.PI * 50}` }}
                   animate={{
-                    strokeDasharray: `${(verdict.overallRiskScore / 100) * 251.2} 251.2`,
+                    strokeDasharray: `${(verdict.overallRiskScore / 100) * 2 * Math.PI * 50} ${2 * Math.PI * 50}`,
                   }}
                   transition={{ duration: 1, delay: 0.3 }}
                 />
@@ -243,14 +243,9 @@ export function ResultCard({ verdict }: ResultCardProps) {
               <ExternalLink className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500 flex-shrink-0" />
               <span className="text-gray-500 text-xs sm:text-sm font-medium">URL:</span>
             </div>
-            <a
-              href={verdict.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-gray-700 hover:text-red-600 text-xs sm:text-sm font-mono transition-colors break-all"
-            >
+            <span className="text-gray-700 text-xs sm:text-sm font-mono break-all">
               {verdict.url}
-            </a>
+            </span>
           </div>
 
           {/* Summary */}

@@ -1,5 +1,17 @@
 // Utility functions for URL parsing and analysis
 
+// Common two-part TLDs (expanded list)
+const TWO_PART_TLDS = new Set([
+  "co.uk", "co.jp", "co.kr", "co.in", "co.nz", "co.za", "co.id", "co.il", "co.th",
+  "com.au", "com.br", "com.cn", "com.hk", "com.mx", "com.sg", "com.tw", "com.ar",
+  "com.co", "com.my", "com.ph", "com.pk", "com.tr", "com.ua", "com.vn",
+  "org.uk", "org.au", "org.br", "org.cn", "org.in", "org.nz",
+  "net.au", "net.br", "net.cn", "net.in", "net.nz",
+  "gov.uk", "gov.au", "gov.br", "gov.cn", "gov.in",
+  "ac.uk", "ac.jp", "ac.kr", "ac.in", "ac.nz",
+  "edu.au", "edu.br", "edu.cn",
+]);
+
 export interface ParsedUrl {
   full: string;
   protocol: string;
@@ -20,7 +32,7 @@ export function parseUrl(urlString: string): ParsedUrl | null {
     const url = new URL(urlString);
     const hostname = url.hostname.toLowerCase();
 
-    // Check if it's an IP address
+    // Check if it's an IP address (IPv4)
     const isIP = /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname);
 
     // Extract domain parts
@@ -30,17 +42,14 @@ export function parseUrl(urlString: string): ParsedUrl | null {
     let tld = "";
 
     if (!isIP && parts.length >= 2) {
-      tld = "." + parts[parts.length - 1];
-
-      // Handle common two-part TLDs like .co.uk
-      if (
-        parts.length >= 3 &&
-        ["co", "com", "org", "net", "gov"].includes(parts[parts.length - 2])
-      ) {
-        tld = "." + parts.slice(-2).join(".");
+      // Check for two-part TLDs like .co.uk, .com.au
+      const lastTwo = parts.slice(-2).join(".");
+      if (parts.length >= 3 && TWO_PART_TLDS.has(lastTwo)) {
+        tld = "." + lastTwo;
         domain = parts.slice(-3).join(".");
         subdomain = parts.slice(0, -3).join(".");
       } else {
+        tld = "." + parts[parts.length - 1];
         domain = parts.slice(-2).join(".");
         subdomain = parts.slice(0, -2).join(".");
       }
@@ -128,18 +137,30 @@ export function levenshteinDistance(a: string, b: string): number {
   return matrix[b.length][a.length];
 }
 
+/**
+ * Check if a domain looks similar to a known brand (typosquatting detection).
+ * Strips the TLD before comparing to avoid ".com" inflating Levenshtein distance.
+ */
 export function isSimilarToBrand(
   domain: string,
   brands: string[],
 ): { isSimilar: boolean; brand?: string; distance?: number } {
-  const cleanDomain = domain.replace(/[^a-z]/gi, "").toLowerCase();
+  // Strip TLD: "paypa1.com" -> "paypa1"
+  const domainName = domain.split(".")[0].replace(/[^a-z0-9]/gi, "").toLowerCase();
 
   for (const brand of brands) {
-    const cleanBrand = brand.replace(/[^a-z]/gi, "").toLowerCase();
-    const distance = levenshteinDistance(cleanDomain, cleanBrand);
+    const cleanBrand = brand.replace(/[^a-z0-9]/gi, "").toLowerCase();
+
+    // Skip if domain name is too short relative to brand (avoids false positives)
+    if (domainName.length < 3 || cleanBrand.length < 3) continue;
+
+    const distance = levenshteinDistance(domainName, cleanBrand);
+
+    // Adaptive threshold: allow distance 1 for short brands, 2 for longer ones
+    const maxDistance = cleanBrand.length <= 5 ? 1 : 2;
 
     // If distance is small but not zero, it might be typosquatting
-    if (distance > 0 && distance <= 2 && cleanDomain !== cleanBrand) {
+    if (distance > 0 && distance <= maxDistance && domainName !== cleanBrand) {
       return { isSimilar: true, brand, distance };
     }
   }

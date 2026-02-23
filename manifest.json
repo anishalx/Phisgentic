@@ -8,8 +8,6 @@
     "storage",
     "tabs",
     "webNavigation",
-    "scripting",
-    "alarms",
     "activeTab"
   ],
 

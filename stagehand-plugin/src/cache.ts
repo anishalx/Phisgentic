@@ -91,9 +91,17 @@ export class PhishGuardCache {
     });
   }
 
-  /** Check if URL is in cache (not expired) */
+  /** Check if URL is in cache (not expired) — without side effects */
   has(url: string): boolean {
-    return this.get(url) !== null;
+    const key = this.normalizeKey(url);
+    const entry = this.cache.get(key);
+    if (!entry) return false;
+    // Check TTL without reordering LRU or incrementing hits
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      return false;
+    }
+    return true;
   }
 
   /** Clear all cache entries */

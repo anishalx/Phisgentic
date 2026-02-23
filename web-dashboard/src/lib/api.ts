@@ -45,8 +45,14 @@ export function scanUrlWithStream(
 
   eventSource.addEventListener("error", (event) => {
     try {
-      const data = JSON.parse((event as MessageEvent).data);
-      onError(data.error || "Unknown error");
+      const messageEvent = event as MessageEvent;
+      if (messageEvent.data) {
+        const data = JSON.parse(messageEvent.data);
+        onError(data.error || "Unknown error");
+      } else {
+        // Native EventSource error (connection lost, etc.)
+        onError("Connection to server lost");
+      }
     } catch {
       onError("Connection error");
     }

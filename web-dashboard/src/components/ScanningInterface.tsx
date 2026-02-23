@@ -123,21 +123,24 @@ export function ScanningInterface({ onScan, status }: ScanningInterfaceProps) {
                 url="https://google.com" 
                 label="google.com" 
                 type="safe"
-                onClick={setUrl}
+                onSetUrl={setUrl}
+                onScan={onScan}
                 disabled={isScanning}
               />
               <QuickTestButton 
                 url="https://github.com" 
                 label="github.com" 
                 type="safe"
-                onClick={setUrl}
+                onSetUrl={setUrl}
+                onScan={onScan}
                 disabled={isScanning}
               />
               <QuickTestButton 
                 url="https://microsoft.com" 
                 label="microsoft.com" 
                 type="safe"
-                onClick={setUrl}
+                onSetUrl={setUrl}
+                onScan={onScan}
                 disabled={isScanning}
               />
             </div>
@@ -151,14 +154,16 @@ export function ScanningInterface({ onScan, status }: ScanningInterfaceProps) {
                 url="https://paypal-secure-login.tk" 
                 label="paypal-secure-login.tk" 
                 type="warning"
-                onClick={setUrl}
+                onSetUrl={setUrl}
+                onScan={onScan}
                 disabled={isScanning}
               />
               <QuickTestButton 
                 url="https://appleid-verify.000webhostapp.com" 
                 label="appleid-verify..." 
                 type="warning"
-                onClick={setUrl}
+                onSetUrl={setUrl}
+                onScan={onScan}
                 disabled={isScanning}
               />
             </div>
@@ -172,14 +177,16 @@ export function ScanningInterface({ onScan, status }: ScanningInterfaceProps) {
                 url="https://secure-login-facebook.ml/verify" 
                 label="secure-login-facebook.ml" 
                 type="danger"
-                onClick={setUrl}
+                onSetUrl={setUrl}
+                onScan={onScan}
                 disabled={isScanning}
               />
               <QuickTestButton 
                 url="https://netflix-billing-update.xyz" 
                 label="netflix-billing-update.xyz" 
                 type="danger"
-                onClick={setUrl}
+                onSetUrl={setUrl}
+                onScan={onScan}
                 disabled={isScanning}
               />
             </div>
@@ -194,11 +201,12 @@ interface QuickTestButtonProps {
   url: string;
   label: string;
   type: "safe" | "warning" | "danger";
-  onClick: (url: string) => void;
+  onSetUrl: (url: string) => void;
+  onScan: (url: string) => void;
   disabled: boolean;
 }
 
-function QuickTestButton({ url, label, type, onClick, disabled }: QuickTestButtonProps) {
+function QuickTestButton({ url, label, type, onSetUrl, onScan, disabled }: QuickTestButtonProps) {
   const typeStyles = {
     safe: "bg-green-50 border-green-200 text-green-700 hover:bg-green-100 hover:border-green-300",
     warning: "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100 hover:border-amber-300",
@@ -208,7 +216,10 @@ function QuickTestButton({ url, label, type, onClick, disabled }: QuickTestButto
   return (
     <button
       type="button"
-      onClick={() => onClick(url)}
+      onClick={() => {
+        onSetUrl(url);
+        onScan(url);
+      }}
       disabled={disabled}
       className={`px-3 py-1.5 rounded-lg border text-xs font-mono transition-all duration-200 disabled:opacity-50 ${typeStyles[type]}`}
     >
