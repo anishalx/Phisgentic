@@ -1,24 +1,57 @@
 # PhishGuard AI - Multi-Agent Phishing Detection System
 
-A comprehensive, multi-agent AI-powered phishing detection system with four delivery mechanisms: a **Web Dashboard**, a **Backend API Server**, a **Chrome Browser Extension**, and a **Stagehand Plugin** for browser automation frameworks. Powered by 5 specialized AI agents and Groq's ultra-fast LLM inference.
+A comprehensive, multi-agent AI-powered phishing detection system featuring **dual-model cross-verification** with two independent LLMs (Groq Llama + Google Gemini Flash) for consensus-based analysis. Delivered through four platforms: a **Web Dashboard**, a **Backend API Server**, a **Chrome Browser Extension**, and a **Stagehand Plugin** for browser automation frameworks.
+
+## Key Highlights
+
+- **Dual-Model AI Consensus**: Two independent LLMs (Groq Llama 3.3 70B + Google Gemini 2.0 Flash) cross-verify every analysis for higher accuracy
+- **5 Specialized AI Agents**: URL, Domain, Content, Heuristic, and Tester agents analyze URLs in parallel
+- **131 Automated Tests**: Comprehensive test suite across 8 test files, all passing
+- **Performance Optimized**: LRU caching, parallel agent execution, rate limiting, content truncation
+- **Critical Veto System**: Instant block on high-confidence phishing signals regardless of overall score
+- **4 Delivery Platforms**: Web Dashboard, API Server, Chrome Extension, Stagehand Plugin
 
 ## Features
 
-- **Multi-Agent AI Analysis**: 5 specialized AI agents analyze URLs in parallel
-  - **URL Agent** (20%): Analyzes URL structure, encoding, typosquatting, homograph attacks
-  - **Domain Agent** (30%): Checks domain reputation, blocklists, brand impersonation, DGA detection
-  - **Content Agent** (25%): Examines page content, forms, login fields, brand mismatches via Playwright
-  - **Heuristic Agent** (15%): Detects urgency language, threats, social engineering patterns
-  - **Tester Agent** (10%): Simulates user behavior, detects redirects, popups, downloads, and uses vision-based logo detection
+### Dual-Model Cross-Verification
 
-- **Web Dashboard**: Modern Next.js interface for URL analysis with real-time agent streaming
+Each AI agent sends the same analysis prompt to **both** Groq Llama and Google Gemini Flash independently. Results are compared using a consensus engine:
+
+| Scenario | Outcome |
+|----------|---------|
+| Both models agree | Use agreed result with boosted confidence |
+| Models disagree on risk | Take the higher (more cautious) risk score |
+| One model fails | Gracefully fall back to the working model |
+| Both models fail | Fall back to local heuristic analysis only |
+
+This dual-model approach significantly reduces false negatives (missed phishing) and increases reliability.
+
+### AI Agent System
+
+| Agent | Weight | Analysis Focus |
+|-------|--------|----------------|
+| **URL Agent** | 20% | URL structure, encoding, typosquatting, homograph attacks |
+| **Domain Agent** | 30% | Domain reputation, blocklists, brand impersonation, DGA detection |
+| **Content Agent** | 25% | Page content, forms, login fields, brand mismatches via Playwright |
+| **Heuristic Agent** | 15% | Urgency language, threats, social engineering patterns |
+| **Tester Agent** | 10% | Redirects, popups, downloads, browser warnings, vision-based logo detection |
+
+### Performance Optimizations
+
+- **Parallel Agent Execution**: All 5 agents run simultaneously using a deferred promise pattern. TesterAgent, URL, and Domain start immediately; Content and Heuristic await page content from TesterAgent, then start their analysis in parallel.
+- **LRU Scan Cache**: 100-entry cache with 5-minute TTL for instant repeat scans (~150ms vs ~30s)
+- **LLM Rate Limiting**: Token bucket algorithm - Groq at 28 req/min, Gemini at 14 req/min
+- **Content Truncation**: LLM payloads capped at 4000 chars per string, 20 items per array, max depth 5
+- **SSE Server-Side Timeout**: 60-second auto-disconnect prevents hanging connections
+
+### Platform Features
+
+- **Web Dashboard**: Modern Next.js 14 interface with real-time agent streaming via SSE
 - **Chrome Extension**: Passive real-time protection with fullscreen warning overlays
 - **Stagehand Plugin**: Drop-in phishing protection for Stagehand browser automation
-- **Real-time Logging**: Watch agents work in real-time via SSE streaming
 - **Visual Verdicts**: Clear Safe/Suspicious/Dangerous verdicts with risk scores
 - **Screenshot Capture**: See what the page looks like before visiting
 - **Vision-Based Logo Detection**: Identifies brand logos on suspicious domains using Groq Vision (Llama 3.2 11B Vision)
-- **Critical Veto System**: Instant block on high-confidence phishing signals regardless of overall score
 - **Deployment Ready**: Render.com blueprint for one-click deployment
 
 ## Architecture
@@ -46,6 +79,7 @@ A comprehensive, multi-agent AI-powered phishing detection system with four deli
 |   +---------------------------------------------------------------+   |
 |   |                        Orchestrator                            |   |
 |   |  (Weighted scoring + Critical veto + Consensus detection)      |   |
+|   |  (Parallel execution with deferred promise pattern)            |   |
 |   |                                                                |   |
 |   |  +--------+ +--------+ +---------+ +----------+ +---------+  |   |
 |   |  |  URL   | | Domain | | Content | | Heuristic| | Tester  |  |   |
@@ -54,12 +88,18 @@ A comprehensive, multi-agent AI-powered phishing detection system with four deli
 |   |  +--------+ +--------+ +---------+ +----------+ +---------+  |   |
 |   +---------------------------------------------------------------+   |
 |                               |                                       |
-|                               v                                       |
-|                    +---------------------+                            |
-|                    |    Groq LLM API     |                            |
-|                    | Llama 3.3 70B (text)|                            |
-|                    | Llama 3.2 11B (vis.)|                            |
-|                    +---------------------+                            |
+|           +-------------------+-------------------+                   |
+|           v                                       v                   |
+|  +---------------------+              +---------------------+         |
+|  |    Groq LLM API     |              | Google Gemini API   |         |
+|  | Llama 3.3 70B (text)|              | Gemini 2.0 Flash    |         |
+|  | Llama 3.2 11B (vis.)|              | (cross-verification)|         |
+|  +---------------------+              +---------------------+         |
+|                                                                       |
+|   +---------------------------------------------------------------+   |
+|   |              Performance Layer                                 |   |
+|   |  [LRU Cache] [Rate Limiter] [Content Truncation]              |   |
+|   +---------------------------------------------------------------+   |
 +-----------------------------------------------------------------------+
 ```
 
@@ -70,26 +110,33 @@ agent-browser/
 ├── server/                          # Backend API Server
 │   ├── src/
 │   │   ├── agents/
-│   │   │   ├── base-agent.ts        # Abstract agent class
+│   │   │   ├── base-agent.ts        # Abstract agent + dual-model consensus engine
 │   │   │   ├── url-agent.ts         # URL structure analysis
 │   │   │   ├── domain-agent.ts      # Domain reputation checks
 │   │   │   ├── content-agent.ts     # Page content analysis (Playwright)
 │   │   │   ├── heuristic-agent.ts   # Social engineering patterns
 │   │   │   ├── tester-agent.ts      # Browser behavioral testing + vision
-│   │   │   ├── orchestrator.ts      # Agent coordination & scoring
-│   │   │   ├── url-agent.test.ts    # URL agent tests
-│   │   │   ├── domain-agent.test.ts # Domain agent tests
-│   │   │   └── heuristic-agent.test.ts # Heuristic agent tests
+│   │   │   ├── orchestrator.ts      # Parallel agent coordination & scoring
+│   │   │   ├── base-agent.test.ts   # Dual-model consensus tests (21 tests)
+│   │   │   ├── orchestrator.test.ts # Verdict logic tests (10 tests)
+│   │   │   ├── url-agent.test.ts    # URL agent tests (12 tests)
+│   │   │   ├── domain-agent.test.ts # Domain agent tests (13 tests)
+│   │   │   └── heuristic-agent.test.ts # Heuristic agent tests (12 tests)
 │   │   ├── api/
-│   │   │   └── groq-client.ts       # Groq LLM client (text + vision)
+│   │   │   ├── groq-client.ts       # Groq LLM client (text + vision)
+│   │   │   ├── gemini-client.ts     # Google Gemini Flash client
+│   │   │   └── gemini-client.test.ts # Gemini client tests (17 tests)
 │   │   ├── config/
-│   │   │   └── index.ts             # Weights, thresholds, blocklists
+│   │   │   └── index.ts             # Weights, thresholds, blocklists, LLM config
 │   │   ├── types/
 │   │   │   └── index.ts             # TypeScript type definitions
 │   │   ├── utils/
-│   │   │   └── url-parser.ts        # URL parsing utilities
+│   │   │   ├── url-parser.ts        # URL parsing utilities
+│   │   │   ├── url-parser.test.ts   # URL parser tests (38 tests)
+│   │   │   ├── cache.ts             # LRU scan cache with TTL
+│   │   │   └── rate-limiter.ts      # Token bucket rate limiter
 │   │   ├── server.ts                # Express server entry point
-│   │   └── api.test.ts              # API integration tests
+│   │   └── api.test.ts              # API integration tests (8 tests)
 │   ├── package.json
 │   ├── tsconfig.json
 │   └── vitest.config.ts
@@ -150,8 +197,6 @@ agent-browser/
 ├── vite.config.ts                   # Vite build config for extension
 ├── render.yaml                      # Render.com deployment blueprint
 ├── .env.example                     # Environment variable template
-├── planning.md                      # Development plan
-├── explain.md                       # Technical documentation
 └── README.md
 ```
 
@@ -161,15 +206,19 @@ agent-browser/
 
 - Node.js 18+
 - npm or yarn
-- A [Groq API key](https://console.groq.com/)
+- A [Groq API key](https://console.groq.com/) (required)
+- A [Google Gemini API key](https://aistudio.google.com/apikey) (optional, enables dual-model)
 
 ### 1. Start the Backend API
 
 ```bash
 cd server
 npm install
-cp ../.env.example .env
-# Edit .env and add your GROQ_API_KEY
+cp .env.example .env
+# Edit .env and add your API keys:
+#   GROQ_API_KEY=your_groq_key
+#   GEMINI_API_KEY=your_gemini_key    (optional)
+#   DUAL_MODEL_ENABLED=true           (optional)
 npm run dev
 ```
 
@@ -212,9 +261,9 @@ Analyze a URL for phishing indicators.
   "success": true,
   "verdict": {
     "action": "allow",
-    "overallRiskScore": 15,
-    "confidence": 0.85,
-    "summary": "LOW RISK (Score: 15/100) - No major concerns detected.",
+    "overallRiskScore": 0,
+    "confidence": 0.99,
+    "summary": "SAFE - This is a verified trusted domain.",
     "screenshot": "base64...",
     "agentResults": [...]
   },
@@ -234,7 +283,20 @@ SSE endpoint for real-time analysis with streaming agent logs.
 
 ### GET /api/health
 
-Health check endpoint.
+Health check endpoint with cache statistics.
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "timestamp": 1234567890,
+  "cache": {
+    "size": 5,
+    "maxSize": 100,
+    "ttlMs": 300000
+  }
+}
+```
 
 ## How Scoring Works
 
@@ -244,6 +306,8 @@ Each agent returns:
 - `confidence`: 0-1 (how confident the agent is)
 - `signals`: Array of detected indicators
 - `explanation`: Human-readable analysis
+
+When dual-model is enabled, each agent's analysis includes a `modelComparison` object showing the results from both Groq and Gemini, along with the consensus method used.
 
 The orchestrator combines scores using a weighted formula:
 
@@ -302,7 +366,7 @@ The following signals trigger an immediate block regardless of overall score:
 - Suspicious patterns (-login, -secure)
 - Excessive hyphens
 - Suspicious hosting platforms (weebly, wix, netlify, etc.)
-- Brand impersonation
+- Brand impersonation with improved false-positive filtering
 
 ### Content Agent
 - Login forms submitting to external domains
@@ -310,6 +374,7 @@ The following signals trigger an immediate block regardless of overall score:
 - Sensitive data requests
 - Mismatched link text
 - Form hijacking detection
+- Hidden element detection
 
 ### Heuristic Agent
 - Urgency language ("Act now!", "24 hours")
@@ -320,11 +385,12 @@ The following signals trigger an immediate block regardless of overall score:
 
 ### Tester Agent
 - Excessive redirects / cross-domain redirects
-- Popup dialogs
+- Popup dialogs (with proper listener cleanup)
 - Automatic download attempts
 - Browser permission requests
 - Safety warnings
 - Vision-based logo detection (Groq Vision model)
+- Redirect chain tracking
 
 ## Chrome Extension
 
@@ -423,6 +489,8 @@ THRESHOLDS: {
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `GROQ_API_KEY` | Groq API key (required) | - |
+| `GEMINI_API_KEY` | Google Gemini API key (enables dual-model) | - |
+| `DUAL_MODEL_ENABLED` | Enable dual-model cross-verification | `false` |
 | `PORT` | Backend server port | `3001` |
 | `DISABLE_TESTER_AGENT` | Disable Playwright-based tester agent | `false` |
 | `DISABLE_VISION_DETECTION` | Disable vision-based logo detection | `false` |
@@ -431,19 +499,25 @@ THRESHOLDS: {
 
 ## Testing
 
-The project uses [Vitest](https://vitest.dev/) for testing. Tests mock the Groq API client to avoid external API calls.
+The project uses [Vitest](https://vitest.dev/) for testing. Tests mock the LLM API clients to avoid external API calls.
 
 ```bash
 cd server
 npm test
 ```
 
-### Test Coverage
+### Test Suite (131 tests, 8 files)
 
-- **URL Agent**: 10 tests - safe URLs, IP detection, suspicious TLDs, shorteners, long URLs, subdomains, keywords, HTTPS, ports, encoded characters
-- **Domain Agent**: 9 tests - safe domains, suspicious patterns, brand impersonation, long domains, hyphens, TLDs
-- **Heuristic Agent**: 10 tests - urgency language, threat detection, sensitive data, reward scams, grammar, combined analysis
-- **API Integration**: 8 tests - endpoint routing, error handling, mocked orchestrator
+| Test File | Tests | Coverage |
+|-----------|-------|----------|
+| `url-parser.test.ts` | 38 | URL parsing, TLD detection, brand similarity, encoding |
+| `base-agent.test.ts` | 21 | Dual-model consensus engine, fallback logic, payload truncation |
+| `gemini-client.test.ts` | 17 | Gemini API client, error handling, timeouts, JSON parsing |
+| `domain-agent.test.ts` | 13 | Safe domains, brand impersonation, suspicious patterns, TLDs |
+| `url-agent.test.ts` | 12 | Safe URLs, IP detection, suspicious TLDs, shorteners, keywords |
+| `heuristic-agent.test.ts` | 12 | Urgency language, threats, sensitive data, reward scams |
+| `orchestrator.test.ts` | 10 | Verdict logic, veto signals, weighted scoring, consensus |
+| `api.test.ts` | 8 | Endpoint routing, error handling, input validation |
 
 ## Deployment
 
@@ -454,7 +528,10 @@ The project includes a `render.yaml` blueprint for deploying both the API server
 1. Fork/push this repository to GitHub
 2. Go to [Render Dashboard](https://dashboard.render.com) > **Blueprints**
 3. Connect your repository and select the blueprint
-4. Set the `GROQ_API_KEY` environment variable in the Render dashboard
+4. Set environment variables in the Render dashboard:
+   - `GROQ_API_KEY` (required)
+   - `GEMINI_API_KEY` (optional, enables dual-model)
+   - `DUAL_MODEL_ENABLED` (set to `true` if using Gemini)
 5. Deploy
 
 The blueprint deploys:
@@ -468,20 +545,23 @@ The blueprint deploys:
 | Component | Stack |
 |-----------|-------|
 | **Backend** | Node.js, Express, TypeScript, Playwright, Zod, Helmet |
-| **AI/LLM** | Groq API - Llama 3.3 70B (text), Llama 3.2 11B Vision (logo detection) |
+| **AI/LLM** | Groq API (Llama 3.3 70B text + Llama 3.2 11B Vision), Google Gemini API (Gemini 2.0 Flash) |
 | **Dashboard** | Next.js 14, React 18, TailwindCSS, Framer Motion, Lucide React |
 | **Extension** | Chrome Extension Manifest V3, Vite, TypeScript |
 | **Plugin** | TypeScript, ES Proxy pattern, Playwright peer dependency |
-| **Testing** | Vitest |
+| **Testing** | Vitest (131 tests across 8 files) |
+| **Performance** | LRU caching, token bucket rate limiting, parallel execution |
 | **Deployment** | Render.com |
 
 ## Security Notes
 
-- The Groq API key must be stored in environment variables -- never commit it to source control
+- API keys must be stored in environment variables -- never commit them to source control
 - The backend acts as a secure proxy for all LLM API calls
 - Never expose API keys in frontend or extension code
 - The extension communicates with the local backend server; no API keys are embedded
-- Rate limiting and Helmet security headers are enabled on the API server
+- Rate limiting (30 req/min per IP) and Helmet security headers are enabled on the API server
+- LLM rate limiting prevents API quota exhaustion (Groq 28/min, Gemini 14/min)
+- Input validation with Zod on all API endpoints
 
 ## Known Limitations
 
@@ -490,6 +570,7 @@ The blueprint deploys:
 - Screenshot capture may fail on some protected pages
 - Tester agent requires Playwright browser binaries (not available on all hosting platforms)
 - Vision-based logo detection depends on Groq Vision model availability
+- Dual-model consensus requires both Groq and Gemini API keys for full functionality
 
 ## License
 
