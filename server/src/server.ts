@@ -42,6 +42,8 @@ app.use(
       // Chrome extensions have chrome-extension:// origin — allow all
       if (origin.startsWith("chrome-extension://")) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
+      // Allow any Render-hosted origin (*.onrender.com)
+      if (origin.endsWith(".onrender.com")) return callback(null, true);
       // In development, allow all origins
       if (process.env.NODE_ENV !== "production") return callback(null, true);
       callback(new Error("Not allowed by CORS"));

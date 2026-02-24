@@ -132,11 +132,14 @@ export function scanUrlWithStream(
           connect(retryCount + 1);
         }
       } else {
-        onError(
-          err instanceof Error
-            ? err.message
-            : "Connection to server failed",
-        );
+        // Provide a user-friendly message instead of raw browser error
+        const friendlyMsg =
+          isNetworkError
+            ? "Could not connect to the analysis server. It may be starting up — please try again in a moment."
+            : err instanceof Error
+              ? err.message
+              : "Connection to server failed";
+        onError(friendlyMsg);
       }
     }
   }
