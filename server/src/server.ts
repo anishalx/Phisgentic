@@ -31,6 +31,7 @@ const allowedOrigins = [
   "http://localhost:3000",  // Next.js dashboard dev
   "http://localhost:3001",  // Self (for health checks)
   `http://localhost:${CONFIG.PORT}`,
+  "https://phishiq.zone.id",  // Custom domain
   process.env.DASHBOARD_URL, // Production dashboard URL
 ].filter(Boolean) as string[];
 

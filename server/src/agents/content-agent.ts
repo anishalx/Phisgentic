@@ -30,7 +30,7 @@ Provide a risk score (0-100), confidence (0-1), detected signals, and explanatio
 interface ContentAnalysisInput {
   url: string;
   pageContent?: PageContent;
-  /** Optional: Provide an existing Playwright Page to reuse (e.g., from Stagehand plugin) */
+  /** Optional: Provide an existing Playwright Page to reuse */
   externalPage?: Page;
 }
 
@@ -197,7 +197,7 @@ export class ContentAgent extends BaseAgent {
   }
 
   private async fetchPageContent(url: string, externalPage?: Page): Promise<ExtendedPageContent> {
-    // If an external page is provided (e.g., from Stagehand), use it directly
+    // If an external page is provided, use it directly
     if (externalPage) {
       return this.extractContentFromPage(externalPage, url);
     }

@@ -2,7 +2,31 @@
 
 import type { ScanResponse, AgentLog, FinalVerdict } from "@/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+/**
+ * Resolves the API base URL at runtime.
+ * - If NEXT_PUBLIC_API_URL is set (and not the default localhost fallback), use it.
+ * - If running in a browser on any non-localhost domain (Render or custom domain),
+ *   use the known production API URL.
+ * - Otherwise fall back to localhost for local dev.
+ */
+function getApiBase(): string {
+  // Build-time env var (if set on Render before build)
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (envUrl && envUrl !== "http://localhost:3001") return envUrl;
+
+  // Runtime auto-detection in the browser
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    // If not localhost, we're in production — use the Render API URL
+    if (hostname !== "localhost" && hostname !== "127.0.0.1") {
+      return "https://phishguard-api.onrender.com";
+    }
+  }
+
+  return "http://localhost:3001";
+}
+
+const API_BASE = getApiBase();
 
 export async function scanUrl(url: string): Promise<ScanResponse> {
   const response = await fetch(`${API_BASE}/api/scan`, {

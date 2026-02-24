@@ -1,15 +1,14 @@
 # PhishGuard AI - Multi-Agent Phishing Detection System
 
-A comprehensive, multi-agent AI-powered phishing detection system featuring **dual-model cross-verification** with two independent LLMs (Groq Llama + Google Gemini Flash) for consensus-based analysis. Delivered through four platforms: a **Web Dashboard**, a **Backend API Server**, a **Chrome Browser Extension**, and a **Stagehand Plugin** for browser automation frameworks.
+A comprehensive, multi-agent AI-powered phishing detection system featuring **dual-model cross-verification** with two independent LLMs (Groq Llama + Google Gemini Flash) for consensus-based analysis. Delivered through three platforms: a **Web Dashboard**, a **Backend API Server**, and a **Chrome Browser Extension**.
 
 ## Key Highlights
 
 - **Dual-Model AI Consensus**: Two independent LLMs (Groq Llama 3.3 70B + Google Gemini 2.0 Flash) cross-verify every analysis for higher accuracy
 - **5 Specialized AI Agents**: URL, Domain, Content, Heuristic, and Tester agents analyze URLs in parallel
-- **131 Automated Tests**: Comprehensive test suite across 8 test files, all passing
 - **Performance Optimized**: LRU caching, parallel agent execution, rate limiting, content truncation
 - **Critical Veto System**: Instant block on high-confidence phishing signals regardless of overall score
-- **4 Delivery Platforms**: Web Dashboard, API Server, Chrome Extension, Stagehand Plugin
+- **3 Delivery Platforms**: Web Dashboard, API Server, Chrome Extension
 
 ## Features
 
@@ -48,7 +47,6 @@ This dual-model approach significantly reduces false negatives (missed phishing)
 
 - **Web Dashboard**: Modern Next.js 14 interface with real-time agent streaming via SSE
 - **Chrome Extension**: Passive real-time protection with fullscreen warning overlays
-- **Stagehand Plugin**: Drop-in phishing protection for Stagehand browser automation
 - **Visual Verdicts**: Clear Safe/Suspicious/Dangerous verdicts with risk scores
 - **Screenshot Capture**: See what the page looks like before visiting
 - **Vision-Based Logo Detection**: Identifies brand logos on suspicious domains using Groq Vision (Llama 3.2 11B Vision)
@@ -57,16 +55,11 @@ This dual-model approach significantly reduces false negatives (missed phishing)
 ## Architecture
 
 ```
-                        +---------------------------------+
-                        |        Stagehand Plugin         |
-                        |  (Proxy-based interception)     |
-                        +---------------+-----------------+
-                                        |
-+-----------------------+               |               +-----------------------+
-|    Web Dashboard      |               |               |  Chrome Extension     |
-|  (Next.js + Tailwind) |               |               |  (Manifest V3)        |
-+-----------+-----------+               |               +-----------+-----------+
-            |                           |                           |
++-----------------------+                               +-----------------------+
+|    Web Dashboard      |                               |  Chrome Extension     |
+|  (Next.js + Tailwind) |                               |  (Manifest V3)        |
++-----------+-----------+                               +-----------+-----------+
+            |                                                       |
             +---------------------------+---------------------------+
                                         |
                                    HTTP / SSE
@@ -116,30 +109,21 @@ agent-browser/
 │   │   │   ├── content-agent.ts     # Page content analysis (Playwright)
 │   │   │   ├── heuristic-agent.ts   # Social engineering patterns
 │   │   │   ├── tester-agent.ts      # Browser behavioral testing + vision
-│   │   │   ├── orchestrator.ts      # Parallel agent coordination & scoring
-│   │   │   ├── base-agent.test.ts   # Dual-model consensus tests (21 tests)
-│   │   │   ├── orchestrator.test.ts # Verdict logic tests (10 tests)
-│   │   │   ├── url-agent.test.ts    # URL agent tests (12 tests)
-│   │   │   ├── domain-agent.test.ts # Domain agent tests (13 tests)
-│   │   │   └── heuristic-agent.test.ts # Heuristic agent tests (12 tests)
+│   │   │   └── orchestrator.ts      # Parallel agent coordination & scoring
 │   │   ├── api/
 │   │   │   ├── groq-client.ts       # Groq LLM client (text + vision)
-│   │   │   ├── gemini-client.ts     # Google Gemini Flash client
-│   │   │   └── gemini-client.test.ts # Gemini client tests (17 tests)
+│   │   │   └── gemini-client.ts     # Google Gemini Flash client
 │   │   ├── config/
 │   │   │   └── index.ts             # Weights, thresholds, blocklists, LLM config
 │   │   ├── types/
 │   │   │   └── index.ts             # TypeScript type definitions
 │   │   ├── utils/
 │   │   │   ├── url-parser.ts        # URL parsing utilities
-│   │   │   ├── url-parser.test.ts   # URL parser tests (38 tests)
 │   │   │   ├── cache.ts             # LRU scan cache with TTL
 │   │   │   └── rate-limiter.ts      # Token bucket rate limiter
-│   │   ├── server.ts                # Express server entry point
-│   │   └── api.test.ts              # API integration tests (8 tests)
+│   │   └── server.ts                # Express server entry point
 │   ├── package.json
-│   ├── tsconfig.json
-│   └── vitest.config.ts
+│   └── tsconfig.json
 │
 ├── web-dashboard/                   # Frontend Dashboard
 │   ├── src/
@@ -179,19 +163,6 @@ agent-browser/
 │   └── utils/
 │       ├── url-parser.ts            # URL parsing
 │       └── storage.ts               # Chrome storage wrapper
-│
-├── stagehand-plugin/                # Stagehand Plugin
-│   ├── src/
-│   │   ├── index.ts                 # Public API (withPhishGuard)
-│   │   ├── plugin.ts                # Core Proxy-based interception
-│   │   ├── detector.ts              # Detection orchestrator (fast/full)
-│   │   ├── types.ts                 # Plugin types
-│   │   ├── link-scanner.ts          # Proactive page link scanning
-│   │   ├── cache.ts                 # LRU cache with TTL
-│   │   ├── logger.ts                # Formatted logger
-│   │   └── agents/                  # Plugin agent wrappers
-│   ├── package.json
-│   └── tsconfig.json
 │
 ├── manifest.json                    # Chrome Extension MV3 manifest
 ├── vite.config.ts                   # Vite build config for extension
@@ -419,45 +390,6 @@ npm run build
 - Per-domain whitelist
 - Report phishing functionality
 
-## Stagehand Plugin
-
-The Stagehand plugin adds phishing protection to [Stagehand](https://github.com/browserbase/stagehand) browser automation workflows using a JavaScript Proxy pattern.
-
-### Installation
-
-```bash
-cd stagehand-plugin
-npm install
-npm run build
-```
-
-### Usage
-
-```typescript
-import { Stagehand } from "@browserbasehq/stagehand";
-import { withPhishGuard } from "./stagehand-plugin";
-
-const stagehand = new Stagehand({ /* config */ });
-await stagehand.init();
-
-// Wrap with phishing protection
-const protected = withPhishGuard(stagehand, {
-  mode: "fast",       // "fast" (URL+Domain only) or "full" (all 5 agents)
-  onPhishing: "warn", // "warn" (log and continue) or "block" (throw error)
-});
-
-// All navigation is now automatically scanned
-await protected.page.goto("https://example.com");
-```
-
-### Plugin Features
-
-- **Two modes**: "fast" (~200ms, URL+Domain only) and "full" (all 5 agents)
-- **Proxy-based**: Transparently intercepts `page.goto()`, `page.act()`, and `agent().execute()`
-- **Caching**: LRU cache with TTL to avoid re-scanning known URLs
-- **Proactive scanning**: Optionally scan all links on a page
-- **Stats tracking**: Track scan counts, blocks, and cache hits
-
 ## Configuration
 
 ### Agent Weights
@@ -497,28 +429,6 @@ THRESHOLDS: {
 | `NEXT_PUBLIC_API_URL` | Dashboard API base URL | `http://localhost:3001` |
 | `NODE_ENV` | Environment (development/production) | `development` |
 
-## Testing
-
-The project uses [Vitest](https://vitest.dev/) for testing. Tests mock the LLM API clients to avoid external API calls.
-
-```bash
-cd server
-npm test
-```
-
-### Test Suite (131 tests, 8 files)
-
-| Test File | Tests | Coverage |
-|-----------|-------|----------|
-| `url-parser.test.ts` | 38 | URL parsing, TLD detection, brand similarity, encoding |
-| `base-agent.test.ts` | 21 | Dual-model consensus engine, fallback logic, payload truncation |
-| `gemini-client.test.ts` | 17 | Gemini API client, error handling, timeouts, JSON parsing |
-| `domain-agent.test.ts` | 13 | Safe domains, brand impersonation, suspicious patterns, TLDs |
-| `url-agent.test.ts` | 12 | Safe URLs, IP detection, suspicious TLDs, shorteners, keywords |
-| `heuristic-agent.test.ts` | 12 | Urgency language, threats, sensitive data, reward scams |
-| `orchestrator.test.ts` | 10 | Verdict logic, veto signals, weighted scoring, consensus |
-| `api.test.ts` | 8 | Endpoint routing, error handling, input validation |
-
 ## Deployment
 
 ### Render.com (One-Click)
@@ -548,8 +458,6 @@ The blueprint deploys:
 | **AI/LLM** | Groq API (Llama 3.3 70B text + Llama 3.2 11B Vision), Google Gemini API (Gemini 2.0 Flash) |
 | **Dashboard** | Next.js 14, React 18, TailwindCSS, Framer Motion, Lucide React |
 | **Extension** | Chrome Extension Manifest V3, Vite, TypeScript |
-| **Plugin** | TypeScript, ES Proxy pattern, Playwright peer dependency |
-| **Testing** | Vitest (131 tests across 8 files) |
 | **Performance** | LRU caching, token bucket rate limiting, parallel execution |
 | **Deployment** | Render.com |
 
@@ -580,6 +488,5 @@ MIT License - Feel free to use and modify.
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Run the tests (`cd server && npm test`)
-4. Commit your changes
-5. Submit a pull request
+3. Commit your changes
+4. Submit a pull request

@@ -221,7 +221,7 @@ export class TesterAgent extends BaseAgent {
   }
 
   private async performBrowserTest(url: string, externalPage?: import("playwright").Page): Promise<BrowserTestResult> {
-    // If an external page is provided (e.g., from Stagehand), use it directly
+    // If an external page is provided, use it directly
     if (externalPage) {
       return this.performTestOnPage(externalPage, url);
     }
@@ -500,7 +500,7 @@ export class TesterAgent extends BaseAgent {
   }
 
   /**
-   * Perform browser test using an existing external Page (e.g., from Stagehand).
+   * Perform browser test using an existing external Page.
    * Does NOT navigate - assumes the page is already on the target URL.
    */
   private async performTestOnPage(page: import("playwright").Page, url: string): Promise<BrowserTestResult> {
@@ -664,9 +664,9 @@ export class TesterAgent extends BaseAgent {
       screenshot,
       finalUrl,
       redirectChain: [], // External page - redirect chain not tracked
-      hasPopups: false,  // External page - popups managed by Stagehand
+      hasPopups: false,  // External page - popups not tracked
       hasOverlays,
-      downloadAttempted: false, // External page - downloads managed by Stagehand
+      downloadAttempted: false, // External page - downloads not tracked
       permissionRequests: [],
       consoleErrors,
       networkErrors,

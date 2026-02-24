@@ -32,7 +32,7 @@ export class Orchestrator {
   async analyzeUrl(
     url: string,
     onLog?: (log: AgentLog) => void,
-    /** Optional: Provide an existing Playwright Page to reuse (e.g., from Stagehand plugin) */
+    /** Optional: Provide an existing Playwright Page to reuse */
     externalPage?: Page,
   ): Promise<OrchestratorResult> {
     const startTime = Date.now();
