@@ -66,7 +66,21 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
       (safe) => domain === safe || domain.endsWith(`.${safe}`)
     )
   ) {
-    console.log(`[PhishGuard AI] Domain ${domain} is in safe list`);
+    console.log(`[PhishGuard AI] Domain ${domain} is in safe list — instant green badge`);
+    // Show green badge immediately so the user gets instant feedback
+    chrome.action.setBadgeBackgroundColor({ color: "#22c55e", tabId });
+    chrome.action.setBadgeText({ text: "✓", tabId });
+    // Store a safe verdict so popup shows correct status
+    const safeVerdict: FinalVerdict = {
+      url,
+      overallRiskScore: 0,
+      confidence: 0.99,
+      action: "allow",
+      summary: "SAFE — This is a verified trusted domain.",
+      agentResults: [],
+      timestamp: Date.now(),
+    };
+    analysisResults.set(tabId, safeVerdict);
     return;
   }
 

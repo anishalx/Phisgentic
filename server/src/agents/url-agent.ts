@@ -14,19 +14,22 @@ import {
 } from "../utils/url-parser.js";
 
 const SYSTEM_PROMPT = `You are a cybersecurity expert specializing in URL analysis for phishing detection.
-Analyze the provided URL structure and identify phishing indicators.
+Analyze the provided URL structure and identify phishing indicators accurately.
 
-Consider these risk factors:
-- Suspicious URL length (>75 chars often indicates phishing)
-- Excessive special characters or encoding
+IMPORTANT: Many legitimate URLs contain words like "login", "account", "verify", or "secure" — these are NORMAL for real websites. Only flag URLs when multiple indicators combine to suggest phishing.
+
+Consider these risk factors (require COMBINATIONS, not single indicators):
 - IP addresses instead of domain names
-- Multiple subdomains (domain depth >3)
-- Typosquatting patterns (misspelled brand names)
+- Typosquatting patterns (misspelled brand names like "paypa1", "amaz0n")
 - Homograph attacks (Unicode lookalikes)
-- URL shorteners hiding destination
-- Suspicious keywords in path (login, verify, secure, account)
-- Missing HTTPS on sensitive pages
-- Non-standard port numbers
+- Excessive subdomain depth (>3 levels) combined with brand keywords
+- URL shorteners hiding suspicious destinations
+- Encoded characters hiding the true destination
+
+LOW RISK (normal behavior):
+- Keywords like "login", "signin", "account" in paths of legitimate domains
+- Long URLs from search engines, analytics, or e-commerce sites
+- HTTPS URLs with standard ports
 
 Provide a risk score (0-100), confidence (0-1), detected signals, and explanation.`;
 
@@ -52,6 +55,18 @@ export class UrlAgent extends BaseAgent {
     // Perform local analysis first (fast checks)
     const localAnalysis = this.performLocalAnalysis(parsed, signals);
     localRiskScore = localAnalysis.score;
+
+    // FAST-PATH: If local heuristics found nothing suspicious (score < 10),
+    // skip the expensive LLM call entirely — saves 2-4 seconds per scan
+    if (localRiskScore < 10) {
+      return this.createResult(
+        localRiskScore,
+        0.8,
+        signals,
+        "URL structure appears normal — no suspicious patterns detected.",
+        Date.now() - startTime,
+      );
+    }
 
     // Use LLM for deeper analysis (dual-model)
     try {
@@ -114,35 +129,47 @@ export class UrlAgent extends BaseAgent {
       signals.push(
         this.createSignal(
           "url_length",
-          "high",
-          parsed.full.length,
-          "Excessively long URL",
-        ),
-      );
-      score += 15;
-    } else if (parsed.full.length > 75) {
-      signals.push(
-        this.createSignal(
-          "url_length",
-          "medium",
+          "low",
           parsed.full.length,
           "Long URL",
         ),
       );
-      score += 8;
+      score += 5;
+    } else if (parsed.full.length > 75) {
+      signals.push(
+        this.createSignal(
+          "url_length",
+          "low",
+          parsed.full.length,
+          "Moderately long URL",
+        ),
+      );
+      score += 3;
     }
 
     // Check for IP address
+    // Exception: private/local IPs (RFC1918 + localhost) are NOT suspicious —
+    // users access router admin panels, local dev servers, etc. via IP.
     if (parsed.isIP) {
-      signals.push(
-        this.createSignal(
-          "ip_address",
-          "critical",
-          parsed.hostname,
-          "URL uses IP address instead of domain",
-        ),
-      );
-      score += 30;
+      const ip = parsed.hostname;
+      const isPrivateIP =
+        ip.startsWith("10.") ||
+        ip.startsWith("192.168.") ||
+        ip.startsWith("127.") ||
+        ip === "localhost" ||
+        /^172\.(1[6-9]|2[0-9]|3[01])\./.test(ip);
+
+      if (!isPrivateIP) {
+        signals.push(
+          this.createSignal(
+            "ip_address",
+            "high",
+            parsed.hostname,
+            "URL uses public IP address instead of domain",
+          ),
+        );
+        score += 25;
+      }
     }
 
     // Check subdomain depth
@@ -151,22 +178,22 @@ export class UrlAgent extends BaseAgent {
       signals.push(
         this.createSignal(
           "subdomain_depth",
-          "high",
+          "medium",
           subdomainCount,
           `Excessive subdomain depth: ${subdomainCount}`,
         ),
       );
-      score += 15;
+      score += 8;
     } else if (subdomainCount > 2) {
       signals.push(
         this.createSignal(
           "subdomain_depth",
-          "medium",
+          "low",
           subdomainCount,
           `Multiple subdomains: ${subdomainCount}`,
         ),
       );
-      score += 8;
+      score += 3;
     }
 
     // Check for suspicious TLD
@@ -205,12 +232,12 @@ export class UrlAgent extends BaseAgent {
       signals.push(
         this.createSignal(
           "encoded_chars",
-          "medium",
+          "low",
           true,
           "URL contains encoded characters",
         ),
       );
-      score += 10;
+      score += 3;
     }
 
     // Check special character count
@@ -310,12 +337,12 @@ export class UrlAgent extends BaseAgent {
       signals.push(
         this.createSignal(
           "non_standard_port",
-          "high",
+          "medium",
           parsed.port,
           "Non-standard port detected",
         ),
       );
-      score += 15;
+      score += 8;
     }
 
     return { score: Math.min(100, score) };

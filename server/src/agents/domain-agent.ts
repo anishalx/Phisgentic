@@ -5,25 +5,28 @@ import type { AgentResult, Signal } from "../types/index.js";
 import { CONFIG } from "../config/index.js";
 import { parseUrl } from "../utils/url-parser.js";
 
-const SYSTEM_PROMPT = `You are an elite cybersecurity analyst specializing in domain threat intelligence.
-Analyze the provided domain with EXTREME scrutiny for phishing indicators.
+const SYSTEM_PROMPT = `You are a cybersecurity analyst specializing in domain threat intelligence.
+Analyze the provided domain carefully and accurately for phishing indicators.
 
-CRITICAL RED FLAGS (should result in high scores 70-100):
-- Any domain mimicking a major brand (PayPal, Amazon, Microsoft, etc.)
-- Free hosting services (weebly, wix, 000webhost, netlify, vercel)
-- Recently registered domains or privacy-protected WHOIS
-- Suspicious TLDs (.xyz, .tk, .ml, .top, .click, etc.)
-- Random character patterns suggesting DGA (domain generation algorithm)
-- Subdomains containing brand names when main domain is different
-- IP addresses used as domains
-- URL shorteners
+IMPORTANT: Many legitimate websites exist on various hosting platforms and TLDs. Do NOT flag a domain as phishing simply because it uses a free hosting service or has an uncommon TLD. Look for COMBINATIONS of suspicious indicators.
 
-MODERATE FLAGS (scores 40-70):
-- Domains with many hyphens or numbers
-- Non-standard registrars
-- Missing SSL or self-signed certificates
+CRITICAL RED FLAGS (score 70-100) — require STRONG evidence:
+- Domain clearly mimicking a major brand with typos or extra characters (e.g., paypa1.com, amaz0n-login.com)
+- Known malicious dynamic DNS services (duckdns.org, etc.)
+- IP addresses used as hostnames with credential-harvesting pages
+- Domains with brand names in subdomains pointing to unrelated hosts
 
-Be AGGRESSIVE in scoring. When in doubt, score HIGHER. False positives are preferable to missing phishing.
+MODERATE FLAGS (score 30-60):
+- Suspicious TLDs (.tk, .ml, .ga) combined with brand-related keywords
+- Recently registered domains with login/payment pages
+- Random character patterns suggesting automated domain generation
+
+LOW RISK (score 0-30):
+- Established domains even if they use hosting platforms like Vercel, Netlify, or GitHub Pages
+- Domains with common words like "login" or "account" that are part of legitimate services
+- Uncommon TLDs without other suspicious indicators
+
+Be ACCURATE. Only score high when there are multiple strong indicators of phishing. A single suspicious characteristic is not enough.
 
 Provide a risk score (0-100), confidence (0-1), detected signals, and explanation.`;
 
@@ -54,6 +57,18 @@ export class DomainAgent extends BaseAgent {
     );
     localRiskScore = localAnalysis.score;
 
+    // FAST-PATH: If local heuristics found nothing suspicious (score < 10),
+    // skip the expensive LLM call entirely — saves 2-4 seconds per scan
+    if (localRiskScore < 10) {
+      return this.createResult(
+        localRiskScore,
+        0.8,
+        signals,
+        "Domain appears legitimate — no suspicious indicators found.",
+        Date.now() - startTime,
+      );
+    }
+
     // If already flagged as critical, skip LLM
     if (localRiskScore >= 80) {
       return this.createResult(
@@ -79,15 +94,15 @@ export class DomainAgent extends BaseAgent {
           description: s.description,
         })),
         localRiskScore,
-        instruction: "Score aggressively. If suspicious, give 70+. If clearly phishing, give 90+.",
+        instruction: "Be accurate. Score 70+ only with strong evidence of phishing. Legitimate hosting platforms and uncommon TLDs alone are not phishing.",
       });
 
       if (llmResult) {
         const llmSignals = (llmResult.signals as Signal[]) || [];
         const allSignals = [...signals, ...llmSignals];
 
-        // Take the MAXIMUM of local and LLM scores (not average)
-        const combinedScore = Math.max(localRiskScore, llmResult.riskScore);
+        // Weighted average of local and LLM scores (not MAX — MAX causes over-scoring on legit sites)
+        const combinedScore = Math.round(localRiskScore * 0.4 + llmResult.riskScore * 0.6);
 
         return this.createResult(
           combinedScore,
@@ -144,18 +159,21 @@ export class DomainAgent extends BaseAgent {
       return { score: 95 };
     }
 
-    // CHECK 3: Suspicious free hosting (high risk)
+    // CHECK 3: Suspicious free hosting (medium risk)
+    // Many legitimate projects use Vercel, Netlify, GitHub Pages, etc.
+    // Only treat as a moderate signal, not critical — real phishing on these
+    // platforms will still be caught by content/heuristic agents.
     const hostingMatch = this.matchesSuspiciousHosting(hostname);
     if (hostingMatch) {
       signals.push(
         this.createSignal(
           "suspicious_hosting",
-          "critical",
+          "medium",
           hostingMatch,
-          `Uses free hosting service commonly abused for phishing: ${hostingMatch}`,
+          `Uses free hosting service sometimes abused for phishing: ${hostingMatch}`,
         ),
       );
-      score += 50;
+      score += 20;
     }
 
     // CHECK 4: Brand impersonation in domain
@@ -314,8 +332,10 @@ export class DomainAgent extends BaseAgent {
         const segments = hostnameLower.split(/[.\-]/);
         matches = segments.some(seg => seg === brandName);
       } else {
-        // Longer brand: substring match is acceptable
-        matches = domainLower.includes(brandName) || hostnameLower.includes(brandName);
+        // Longer brand: require segment-based matching to avoid false positives
+        // e.g., "apple-login.evil.com" = match, but "appleseed.com" = no match
+        const segments = hostnameLower.split(/[.\-]/);
+        matches = segments.some(seg => seg === brandName);
       }
 
       if (
@@ -346,15 +366,10 @@ export class DomainAgent extends BaseAgent {
     const subdomainSegments = subdomainPart.split(".");
 
     for (const brand of brands) {
-      // For short brand names, require exact segment match
-      if (brand.name.length <= 3) {
-        if (subdomainSegments.some(seg => seg === brand.name) && !hostname.endsWith(brand.domain)) {
-          return brand.name;
-        }
-      } else {
-        if (subdomainPart.includes(brand.name) && !hostname.endsWith(brand.domain)) {
-          return brand.name;
-        }
+      // For ALL brands, require exact segment match in subdomain
+      // e.g., "paypal.login.evil.com" = match, but "paypalresearch.evil.com" = no match
+      if (subdomainSegments.some(seg => seg === brand.name) && !hostname.endsWith(brand.domain)) {
+        return brand.name;
       }
     }
     return null;
@@ -365,14 +380,14 @@ export class DomainAgent extends BaseAgent {
     const hostnameLower = hostname.toLowerCase();
 
     const suspiciousPatterns = [
-      { pattern: /-login/i, name: "login keyword", score: 15 },
-      { pattern: /-secure/i, name: "secure keyword", score: 15 },
-      { pattern: /-verify/i, name: "verify keyword", score: 15 },
-      { pattern: /-account/i, name: "account keyword", score: 15 },
-      { pattern: /-update/i, name: "update keyword", score: 12 },
-      { pattern: /-confirm/i, name: "confirm keyword", score: 12 },
-      { pattern: /-signin/i, name: "signin keyword", score: 15 },
-      { pattern: /-support/i, name: "support keyword", score: 10 },
+      { pattern: /-login/i, name: "login keyword", score: 8 },
+      { pattern: /-secure/i, name: "secure keyword", score: 8 },
+      { pattern: /-verify/i, name: "verify keyword", score: 8 },
+      { pattern: /-account/i, name: "account keyword", score: 8 },
+      { pattern: /-update/i, name: "update keyword", score: 6 },
+      { pattern: /-confirm/i, name: "confirm keyword", score: 6 },
+      { pattern: /-signin/i, name: "signin keyword", score: 8 },
+      { pattern: /-support/i, name: "support keyword", score: 5 },
       { pattern: /\d{5,}/, name: "many digits", score: 12 },
       { pattern: /-{2,}/, name: "multiple dashes", score: 8 },
       { pattern: /[0-9]{2,}-[a-z]+|[a-z]+-[0-9]{2,}/, name: "number-word mix", score: 10 },
@@ -396,7 +411,7 @@ export class DomainAgent extends BaseAgent {
   }
 
   private looksRandomlyGenerated(domainName: string): boolean {
-    if (domainName.length < 8) return false;
+    if (domainName.length < 10) return false;
 
     // Check consonant ratio
     const consonants = domainName.toLowerCase().replace(/[^bcdfghjklmnpqrstvwxyz]/g, "").length;
@@ -409,7 +424,8 @@ export class DomainAgent extends BaseAgent {
     const vowelRatio = vowels / letters;
 
     // Too many consonants or too few vowels suggests random generation
-    if (consonantRatio > 0.8 || vowelRatio < 0.15) {
+    // Tightened thresholds to reduce false positives on legitimate domains
+    if (consonantRatio > 0.85 || vowelRatio < 0.12) {
       return true;
     }
 

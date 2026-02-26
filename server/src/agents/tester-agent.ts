@@ -852,17 +852,17 @@ export class TesterAgent extends BaseAgent {
           );
           score += 50;
         }
-        // High: Any cross-origin form submission
+        // Medium: Any cross-origin form submission (many legitimate sites do this)
         else if (form.isCrossOrigin && form.method === "POST") {
           signals.push(
             this.createSignal(
               "cross_origin_form",
-              "high",
+              "medium",
               `POST form submits to ${form.actionDomain}`,
               "Form submits data to different domain",
             ),
           );
-          score += 20;
+          score += 8;
         }
       }
     }

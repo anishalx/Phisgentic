@@ -22,9 +22,9 @@ export const CONFIG = {
   DUAL_MODEL: {
     ENABLED: process.env.DUAL_MODEL_ENABLED !== "false", // Enabled by default
     CONSENSUS_THRESHOLD: 15, // Max score difference for auto-consensus
-    DISAGREEMENT_STRATEGY: "conservative" as "conservative" | "average" | "max",
+    DISAGREEMENT_STRATEGY: "average" as "conservative" | "average" | "max",
     // "conservative" = take higher score when models disagree significantly
-    // "average" = average both scores
+    // "average" = average both scores (prevents single LLM hallucination from dominating)
     // "max" = take the maximum score
   },
 
@@ -37,28 +37,24 @@ export const CONFIG = {
     testerAgent: 0.10,
   } as Record<string, number>,
 
-  // Risk thresholds - LOWERED for more aggressive detection
+  // Risk thresholds — Default-allow philosophy: only flag sites with HIGH confidence of phishing
   THRESHOLDS: {
-    ALLOW_MAX: 25,   // 0-25: Allow (was 30)
-    WARN_MAX: 55,    // 26-55: Warn (was 70)
-    BLOCK_MIN: 56,   // 56-100: Block (was 71)
+    ALLOW_MAX: 45,   // 0-45: Allow  (raised from 35 — more sites stay in allow zone)
+    WARN_MAX: 79,    // 46-79: Warn
+    BLOCK_MIN: 80,   // 80-100: Block (raised from 70 — requires stronger evidence to block)
   },
 
   // Critical signal types that trigger immediate BLOCK verdict
+  // IMPORTANT: Only include signals that are UNAMBIGUOUSLY phishing.
+  // Signals removed from this list still contribute to scoring but don't auto-block.
   CRITICAL_VETO_SIGNALS: [
     "blocklist_match",
     "known_phishing_domain",
-    "brand_impersonation",
     "typosquatting",
     "homograph",
-    "ip_address",
-    "external_form_action",
-    "title_brand_mismatch",
     "download_attempted",
     "safety_warning",
-    "sensitive_data_request",
-    "brand_in_subdomain",
-    // New: Advanced Detection
+    // Advanced Detection
     "logo_domain_mismatch",      // Vision-detected brand logo on wrong domain
     "cross_origin_password_form", // Form hijacking: password submitted to different domain
     "cross_origin_credential_form", // Form hijacking: credentials to different domain
@@ -73,23 +69,81 @@ export const CONFIG = {
   },
 
   // Known safe domains (instant allow)
+  // Comprehensive list to prevent false positives on legitimate websites
   SAFE_DOMAINS: [
-    "google.com",
-    "microsoft.com",
-    "apple.com",
-    "github.com",
-    "stackoverflow.com",
-    "amazon.com",
-    "facebook.com",
-    "twitter.com",
-    "linkedin.com",
-    "youtube.com",
-    "netflix.com",
-    "paypal.com",
-    "instagram.com",
-    "whatsapp.com",
-    "reddit.com",
-    "wikipedia.org",
+    // Search & Tech Giants
+    "google.com", "google.co.in", "google.co.uk", "google.co.jp", "google.de",
+    "google.fr", "google.com.br", "google.ca", "google.com.au",
+    "microsoft.com", "apple.com", "github.com", "stackoverflow.com",
+    "bing.com", "yahoo.com", "yahoo.co.jp", "duckduckgo.com", "baidu.com",
+    // Social Media
+    "facebook.com", "twitter.com", "x.com", "linkedin.com", "instagram.com",
+    "whatsapp.com", "reddit.com", "pinterest.com", "tumblr.com", "tiktok.com",
+    "snapchat.com", "discord.com", "discord.gg", "telegram.org", "signal.org",
+    "threads.net", "mastodon.social",
+    // Video & Streaming
+    "youtube.com", "netflix.com", "twitch.tv", "vimeo.com", "dailymotion.com",
+    "disneyplus.com", "hulu.com", "hbomax.com", "max.com", "peacocktv.com",
+    "primevideo.com", "crunchyroll.com", "spotify.com", "soundcloud.com",
+    "hotstar.com",
+    // E-Commerce & Payments
+    "amazon.com", "amazon.in", "amazon.co.uk", "amazon.de", "amazon.co.jp",
+    "amazon.ca", "amazon.com.au", "amazon.fr", "amazon.es", "amazon.it",
+    "flipkart.com", "myntra.com", "meesho.com", "ajio.com",
+    "ebay.com", "ebay.co.uk", "ebay.de",
+    "walmart.com", "target.com", "bestbuy.com", "costco.com",
+    "etsy.com", "shopify.com", "aliexpress.com", "alibaba.com",
+    "paypal.com", "paypal.me", "stripe.com", "razorpay.com",
+    "venmo.com", "squareup.com", "wise.com",
+    // News & Media
+    "bbc.com", "bbc.co.uk", "cnn.com", "nytimes.com", "washingtonpost.com",
+    "reuters.com", "apnews.com", "theguardian.com", "forbes.com",
+    "bloomberg.com", "cnbc.com", "foxnews.com", "nbcnews.com", "abcnews.go.com",
+    "usatoday.com", "wsj.com", "economist.com", "time.com", "newsweek.com",
+    "huffpost.com", "buzzfeed.com", "vice.com", "vox.com", "theatlantic.com",
+    "ndtv.com", "timesofindia.indiatimes.com", "hindustantimes.com",
+    "indianexpress.com", "thehindu.com", "news18.com", "aajtak.in",
+    "moneycontrol.com", "livemint.com", "economictimes.indiatimes.com",
+    "techcrunch.com", "theverge.com", "wired.com", "arstechnica.com",
+    "engadget.com", "mashable.com", "gizmodo.com", "cnet.com", "zdnet.com",
+    "tomsguide.com", "tomshardware.com",
+    // Banking & Finance
+    "chase.com", "bankofamerica.com", "wellsfargo.com", "citi.com",
+    "capitalone.com", "usbank.com", "pnc.com", "tdbank.com",
+    "hdfcbank.com", "icicibank.com", "sbi.co.in", "onlinesbi.sbi",
+    "axisbank.com", "kotak.com", "yesbank.in",
+    "hsbc.com", "barclays.co.uk", "natwest.com", "lloydsbank.com",
+    "americanexpress.com", "discover.com",
+    "fidelity.com", "schwab.com", "vanguard.com", "robinhood.com",
+    "coinbase.com", "binance.com", "kraken.com",
+    // Cloud & Developer Tools
+    "gitlab.com", "bitbucket.org", "npmjs.com", "pypi.org",
+    "docker.com", "hub.docker.com", "aws.amazon.com", "azure.microsoft.com",
+    "cloud.google.com", "digitalocean.com", "heroku.com",
+    "vercel.com", "netlify.com", "cloudflare.com",
+    "figma.com", "canva.com", "notion.so", "trello.com",
+    "atlassian.com", "slack.com", "zoom.us", "zoom.com",
+    "webex.com",
+    // Education & Reference
+    "wikipedia.org", "wikimedia.org", "medium.com", "substack.com",
+    "quora.com", "researchgate.net", "academia.edu",
+    "coursera.org", "udemy.com", "edx.org", "khanacademy.org",
+    "codecademy.com", "freecodecamp.org",
+    // Email & Productivity
+    "gmail.com", "outlook.com", "outlook.live.com", "live.com",
+    "office.com", "office365.com", "protonmail.com", "proton.me",
+    "docs.google.com", "drive.google.com",
+    "dropbox.com", "box.com", "onedrive.live.com",
+    // Government & Shipping
+    "usps.com", "fedex.com", "ups.com", "dhl.com",
+    // Travel & Services
+    "tripadvisor.com", "booking.com", "airbnb.com", "expedia.com",
+    "uber.com", "lyft.com", "doordash.com",
+    // Other Popular Sites
+    "imdb.com", "yelp.com", "zillow.com", "weather.com",
+    "archive.org", "adobe.com", "samsung.com",
+    "openai.com", "chatgpt.com", "anthropic.com", "huggingface.co",
+    "kaggle.com", "leetcode.com", "hackerrank.com",
   ],
 
   // Known phishing/malware domains (instant block)
@@ -110,38 +164,29 @@ export const CONFIG = {
     "000webhostapp.com",
   ],
 
-  // Suspicious TLDs (high-risk) - Expanded list
+  // Suspicious TLDs — Only truly high-abuse TLDs
+  // Removed: .tech, .store, .shop, .site, .online, .live, .space, .life,
+  //          .info, .biz, .link, .fun, .website, .cc (all used by legit businesses)
   SUSPICIOUS_TLDS: [
-    ".tk", ".ml", ".ga", ".cf", ".gq",  // Free TLDs
-    ".xyz", ".top", ".work", ".click", ".link",
-    ".info", ".biz", ".online", ".site", ".club",
+    ".tk", ".ml", ".ga", ".cf", ".gq",  // Free TLDs (heavily abused)
+    ".xyz", ".top", ".click",
     ".icu", ".buzz", ".monster", ".rest", ".cam",
-    ".uno", ".fit", ".life", ".live", ".space",
-    ".fun", ".website", ".tech", ".store", ".shop",
-    ".pw", ".cc", ".ws", ".su", ".ru",  // High abuse regions
+    ".uno", ".fit",
+    ".pw", ".ws", ".su",  // High abuse
   ],
 
-  // Phishing-associated free hosting patterns
+  // Suspicious hosting — Only platforms with extremely high phishing abuse rates
+  // Removed: vercel.app, netlify.app, github.io, gitlab.io, herokuapp.com,
+  //          web.app, firebaseapp.com, azurewebsites.net, cloudfront.net,
+  //          wix.com, wordpress.com, blogspot.com, weebly.com
+  //          (all widely used by legitimate projects/businesses)
   SUSPICIOUS_HOSTING_PATTERNS: [
     "000webhostapp.com",
-    "weebly.com", 
-    "wix.com",
-    "blogspot.com",
-    "wordpress.com",
-    "sites.google.com",
     "forms.gle",
     "docs.google.com/forms",
-    "netlify.app",
-    "vercel.app",
-    "herokuapp.com",
     "glitch.me",
     "repl.co",
-    "github.io", // When impersonating brands
-    "gitlab.io",
-    "web.app",
-    "firebaseapp.com",
-    "azurewebsites.net",
-    "cloudfront.net",
+    "sites.google.com",
   ],
 
   // URL shortener domains
@@ -152,19 +197,17 @@ export const CONFIG = {
     "trib.al", "x.co", "soo.gd", "s.id",
   ],
 
-  // Phishing keywords in URLs - Expanded
+  // Phishing keywords in URLs — Only structural/action keywords
+  // Removed brand names (paypal, amazon, apple, etc.) — already caught by brand impersonation checks
   PHISHING_KEYWORDS: [
     "login", "signin", "sign-in", "log-in",
     "verify", "verification", "validate",
-    "secure", "security", "protect",
+    "secure", "security",
     "account", "myaccount", "my-account",
     "update", "upgrade", "renew",
     "confirm", "confirmation",
     "password", "passwd", "pwd",
-    "banking", "bank", "wallet",
-    "paypal", "amazon", "apple", "microsoft",
-    "google", "facebook", "instagram", "netflix",
-    "support", "help", "customer",
+    "banking", "wallet",
     "suspend", "locked", "disabled",
     "unusual", "activity", "alert",
     "recover", "recovery", "restore",
@@ -241,10 +284,41 @@ export const CONFIG = {
     "docusign": ["docusign.com", "docusign.net"],
   } as Record<string, string[]>,
 
+  // Known legitimate authentication/payment domains
+  // Cross-origin form submissions TO these domains are NOT phishing
+  KNOWN_AUTH_PAYMENT_DOMAINS: [
+    // Authentication providers
+    "auth0.com", "okta.com", "onelogin.com", "duo.com",
+    "login.microsoftonline.com", "accounts.google.com",
+    "appleid.apple.com", "id.apple.com",
+    "cognito-idp.amazonaws.com", "amazoncognito.com",
+    "firebase.google.com", "firebaseapp.com",
+    "auth.firebase.com", "identitytoolkit.googleapis.com",
+    "login.salesforce.com", "login.live.com",
+    "github.com", "gitlab.com",
+    // Payment processors
+    "stripe.com", "js.stripe.com", "checkout.stripe.com",
+    "paypal.com", "paypalobjects.com",
+    "razorpay.com", "api.razorpay.com",
+    "checkout.shopify.com", "shop.app",
+    "square.com", "squareup.com",
+    "braintreegateway.com", "braintree-api.com",
+    "adyen.com", "checkout.adyen.com",
+    "2checkout.com", "paddle.com",
+    "chargebee.com", "recurly.com",
+    // Form services
+    "formspree.io", "getform.io", "formsubmit.co",
+    "mailchimp.com", "list-manage.com",
+    "convertkit.com", "sendinblue.com",
+    "hubspot.com", "forms.hubspot.com",
+    "typeform.com",
+  ],
+
   // Urgency language patterns
+  // Removed common legitimate words: "suspended", "locked", "disabled", "terminated"
+  // (these appear naturally in ToS, status pages, account management, and news)
   URGENCY_PATTERNS: [
     "urgent", "immediately", "right away",
-    "suspended", "locked", "disabled", "terminated",
     "expire", "expiring", "expires in",
     "verify now", "confirm now", "update now",
     "24 hours", "48 hours", "within hours",

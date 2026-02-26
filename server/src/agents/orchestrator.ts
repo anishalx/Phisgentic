@@ -98,49 +98,93 @@ export class Orchestrator {
       return null;
     });
 
-    // Content Agent wrapper — awaits pageContent from TesterAgent, then runs
+    // EARLY EXIT: Run URL + Domain agents first (they are fast, no browser needed).
+    // If both score very low (<10), the site is clearly safe — skip Content,
+    // Heuristic, and Tester agents entirely (saves 5-10 seconds).
+    const [urlResult, domainResult] = await Promise.all([
+      this.withTimeout(this.urlAgent.analyze(url), CONFIG.ANALYSIS.TIMEOUT_MS).catch(() => null),
+      this.withTimeout(this.domainAgent.analyze(url), CONFIG.ANALYSIS.TIMEOUT_MS).catch(() => null),
+    ]);
+
+    if (urlResult) {
+      addLog("urlAgent", "URL Scanner",
+        `Analysis complete - Risk: ${urlResult.riskScore}/100`,
+        urlResult.riskScore > 60 ? "warning" : "success"
+      );
+    } else {
+      addLog("urlAgent", "URL Scanner", "Analysis failed or timed out", "error");
+    }
+
+    if (domainResult) {
+      addLog("domainAgent", "Domain Intelligence",
+        `Analysis complete - Risk: ${domainResult.riskScore}/100`,
+        domainResult.riskScore > 60 ? "warning" : "success"
+      );
+    } else {
+      addLog("domainAgent", "Domain Intelligence", "Analysis failed or timed out", "error");
+    }
+
+    const urlScore = urlResult?.riskScore ?? 15;
+    const domainScore = domainResult?.riskScore ?? 15;
+
+    if (urlScore < 10 && domainScore < 10) {
+      // Both fast agents agree: site looks safe. Skip heavy agents.
+      addLog("orchestrator", "Orchestrator", "Early exit: URL + Domain both low-risk, skipping remaining agents", "info");
+      // Cancel the tester if it's still running (we don't await it)
+      resolvePageContent!(undefined);
+
+      const earlyResults: AgentResult[] = [];
+      if (urlResult) earlyResults.push(urlResult);
+      if (domainResult) earlyResults.push(domainResult);
+
+      const verdict = this.calculateVerdictWithVeto(url, earlyResults, undefined);
+
+      addLog(
+        "orchestrator",
+        "Orchestrator",
+        `Final verdict: ${verdict.action.toUpperCase()} (Score: ${verdict.overallRiskScore}/100) - ${Date.now() - startTime}ms [FAST]`,
+        "success",
+      );
+
+      return { verdict, logs };
+    }
+
+    // Full analysis: run remaining agents in parallel
     const contentPromise = pageContentPromise.then((pageContent) =>
       this.contentAgent.analyze({ url, pageContent, externalPage })
     );
 
-    // Heuristic Agent wrapper — awaits pageContent from TesterAgent, then runs
     const heuristicPromise = pageContentPromise.then((pageContent) =>
       this.heuristicAgent.analyze({ url, pageContent })
     );
 
-    // Run ALL agents in parallel with individual timeouts
-    const allPromises = [
+    const remainingResults = await Promise.allSettled([
       testerPromise,
-      this.withTimeout(this.urlAgent.analyze(url), CONFIG.ANALYSIS.TIMEOUT_MS),
-      this.withTimeout(this.domainAgent.analyze(url), CONFIG.ANALYSIS.TIMEOUT_MS),
-      this.withTimeout(contentPromise, CONFIG.ANALYSIS.TIMEOUT_MS),
-      this.withTimeout(heuristicPromise, CONFIG.ANALYSIS.TIMEOUT_MS),
-    ];
+      contentPromise.then(r => this.withTimeout(Promise.resolve(r), CONFIG.ANALYSIS.TIMEOUT_MS)),
+      heuristicPromise.then(r => this.withTimeout(Promise.resolve(r), CONFIG.ANALYSIS.TIMEOUT_MS)),
+    ]);
 
-    const results = await Promise.allSettled(allPromises);
-
-    // Collect successful results
+    // Collect all results
     const agentResults: AgentResult[] = [];
-    const agentNames = ["Browser Tester", "URL Scanner", "Domain Intelligence", "Content Analyzer", "Behavior Detector"];
-    const agentIds = ["testerAgent", "urlAgent", "domainAgent", "contentAgent", "heuristicAgent"];
+    if (urlResult) agentResults.push(urlResult);
+    if (domainResult) agentResults.push(domainResult);
 
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i];
+    const remainingNames = ["Browser Tester", "Content Analyzer", "Behavior Detector"];
+    const remainingIds = ["testerAgent", "contentAgent", "heuristicAgent"];
+
+    for (let i = 0; i < remainingResults.length; i++) {
+      const result = remainingResults[i];
       if (result.status === "fulfilled" && result.value) {
         agentResults.push(result.value);
-        // Skip testerAgent log (already logged above in .then())
-        if (i > 0) {
+        if (i > 0) { // Skip tester log (already logged above)
           const riskLevel = result.value.riskScore > 60 ? "warning" : "success";
-          addLog(
-            agentIds[i],
-            agentNames[i],
+          addLog(remainingIds[i], remainingNames[i],
             `Analysis complete - Risk: ${result.value.riskScore}/100`,
             riskLevel
           );
         }
       } else if (i > 0) {
-        // Skip testerAgent error (already logged above in .catch())
-        addLog(agentIds[i], agentNames[i], "Analysis failed or timed out", "error");
+        addLog(remainingIds[i], remainingNames[i], "Analysis failed or timed out", "error");
       }
     }
 
@@ -222,10 +266,13 @@ export class Orchestrator {
     // Collect all signals
     const allSignals = agentResults.flatMap((r) => r.signals);
     
-    // VETO CHECK 1: Critical signal types trigger immediate block
+    // VETO CHECK 1: Only NAMED critical signal types trigger immediate block.
+    // We no longer veto on s.severity === "critical" because LLMs can hallucinate
+    // critical severity on legitimate sites. Only the explicitly listed types
+    // (blocklist, typosquatting, homograph, etc.) are unambiguous enough to auto-block.
     const criticalTypes = CONFIG.CRITICAL_VETO_SIGNALS as readonly string[];
     const vetoSignals = allSignals.filter(
-      (s) => criticalTypes.includes(s.type) || s.severity === "critical"
+      (s) => criticalTypes.includes(s.type)
     );
     
     if (vetoSignals.length > 0) {
@@ -248,7 +295,7 @@ export class Orchestrator {
     const maxAgentScore = Math.max(...agentResults.map(r => r.riskScore));
     const maxScoreAgent = agentResults.find(r => r.riskScore === maxAgentScore);
     
-    if (maxAgentScore >= 75) {
+    if (maxAgentScore >= 85) {
       return {
         action: "block",
         overallRiskScore: maxAgentScore,
@@ -261,8 +308,8 @@ export class Orchestrator {
       };
     }
 
-    // VETO CHECK 3: Consensus block (multiple agents suspicious)
-    const suspiciousAgents = agentResults.filter(r => r.riskScore > 50);
+    // VETO CHECK 3: Consensus block (multiple agents highly suspicious)
+    const suspiciousAgents = agentResults.filter(r => r.riskScore > 70);
     if (suspiciousAgents.length >= 2) {
       const avgSuspiciousScore = Math.round(
         suspiciousAgents.reduce((sum, r) => sum + r.riskScore, 0) / suspiciousAgents.length
@@ -307,9 +354,13 @@ export class Orchestrator {
       action = "warn";
     }
 
-    // High severity signals bump "allow" to "warn"
-    const hasHighSignal = allSignals.some(s => s.severity === "high");
-    if (hasHighSignal && action === "allow") {
+    // High severity signals bump "allow" to "warn" — but ONLY if there are
+    // multiple high signals OR at least one critical signal.
+    // A single "high" signal (e.g., a login form on a legitimate site) is not
+    // enough to override an otherwise-safe weighted score.
+    const highSignalCount = allSignals.filter(s => s.severity === "high").length;
+    const hasCriticalSignal = allSignals.some(s => s.severity === "critical");
+    if ((highSignalCount >= 3 || hasCriticalSignal) && action === "allow") {
       action = "warn";
     }
 

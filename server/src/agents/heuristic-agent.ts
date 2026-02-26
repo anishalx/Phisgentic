@@ -7,16 +7,21 @@ import { CONFIG } from "../config/index.js";
 const SYSTEM_PROMPT = `You are a cybersecurity expert specializing in heuristic phishing detection.
 Analyze the provided data using behavioral patterns and psychological manipulation indicators.
 
+IMPORTANT: News websites, security blogs, and legitimate alert pages naturally contain words like "breach", "suspended", "unauthorized", "security alert". These are NOT phishing indicators when they appear in editorial/news content. Only flag urgency/threat language when it is DIRECTED AT THE USER and combined with credential/data requests.
+
 Consider these risk factors:
-- Urgency language ("act now", "24 hours", "immediately")
-- Threat language ("suspended", "locked", "unauthorized access")
-- Requests for sensitive personal data
-- Spelling and grammar errors
-- Pressure tactics and fear-inducing content
-- Promises of rewards or prizes
-- Authority impersonation
-- Social engineering patterns
-- Unusual call-to-action patterns
+- Urgency language DIRECTED AT THE USER ("YOUR account", "act now", "verify YOUR identity")
+- Threat language targeting the user personally ("your account will be suspended")
+- Direct requests for sensitive personal data (SSN, credit card) on non-financial sites
+- Pressure tactics combined with login forms
+- Reward/prize scam language ("you have won", "claim your prize")
+- Poor grammar/spelling in official-looking communications
+
+Do NOT flag:
+- News articles discussing data breaches, security incidents, or account suspensions
+- Security advisories or blog posts about threats
+- Pages with article/news structure discussing security topics
+- Legitimate marketing with time-limited offers
 
 Provide a risk score (0-100), confidence (0-1), detected signals, and explanation.`;
 
@@ -200,6 +205,11 @@ export class HeuristicAgent extends BaseAgent {
     const textLower = content.textContent.toLowerCase();
     const titleLower = content.title.toLowerCase();
 
+    // NEWS CONTEXT DETECTION: News articles, blogs, and journalistic content
+    // naturally contain words like "breach", "suspended", "security alert", etc.
+    // Detect news context and reduce threat/urgency sensitivity accordingly.
+    const isNewsContext = this.detectNewsContext(content, textLower, titleLower);
+
     // Check for urgency patterns
     let urgencyCount = 0;
     const urgencyPatterns = CONFIG.URGENCY_PATTERNS as readonly string[];
@@ -209,26 +219,40 @@ export class HeuristicAgent extends BaseAgent {
       }
     }
 
-    if (urgencyCount >= 3) {
+    // In news context, require much higher urgency counts to flag
+    if (isNewsContext) {
+      // News sites naturally have urgency language — only flag extreme cases
+      if (urgencyCount >= 6) {
+        signals.push(
+          this.createSignal(
+            "urgency_language",
+            "medium",
+            urgencyCount,
+            "Elevated urgency indicators detected (news context noted)",
+          ),
+        );
+        score += 8;
+      }
+    } else if (urgencyCount >= 3) {
       signals.push(
         this.createSignal(
           "high_urgency",
-          "critical",
+          "high",
           urgencyCount,
           "Multiple urgency indicators detected",
         ),
       );
-      score += 25;
+      score += 20;
     } else if (urgencyCount >= 1) {
       signals.push(
         this.createSignal(
           "urgency_language",
-          "high",
+          "medium",
           urgencyCount,
           "Urgency language detected",
         ),
       );
-      score += 12;
+      score += 8;
     }
 
     // Check for threat language
@@ -252,27 +276,41 @@ export class HeuristicAgent extends BaseAgent {
       }
     }
 
-    if (threatCount >= 3) {
+    // In news context, threat language is expected — only flag extreme cases
+    if (isNewsContext) {
+      if (threatCount >= 6) {
+        signals.push(
+          this.createSignal(
+            "threat_language",
+            "medium",
+            threatCount,
+            "Elevated threat indicators detected (news context noted)",
+          ),
+        );
+        score += 8;
+      }
+    } else if (threatCount >= 5) {
       signals.push(
         this.createSignal(
           "high_threat",
-          "critical",
+          "high",
           threatCount,
-          "Multiple threat indicators detected",
+          "Numerous threat indicators detected",
         ),
       );
-      score += 25;
-    } else if (threatCount >= 1) {
+      score += 15;
+    } else if (threatCount >= 3) {
       signals.push(
         this.createSignal(
           "threat_language",
-          "high",
+          "medium",
           threatCount,
-          "Threat language detected",
+          "Multiple threat language patterns detected",
         ),
       );
-      score += 12;
+      score += 8;
     }
+    // 1-2 threat matches: ignored (too common on legitimate sites)
 
     // Check for sensitive data requests
     const sensitivePatterns = [
@@ -317,12 +355,12 @@ export class HeuristicAgent extends BaseAgent {
         signals.push(
           this.createSignal(
             "reward_scam",
-            "high",
+            "medium",
             pattern,
             "Reward/prize scam language detected",
           ),
         );
-        score += 20;
+        score += 10;
         break;
       }
     }
@@ -336,12 +374,12 @@ export class HeuristicAgent extends BaseAgent {
       signals.push(
         this.createSignal(
           "manipulative_title",
-          "medium",
+          "low",
           content.title,
-          "Manipulative page title",
+          "Potentially manipulative page title",
         ),
       );
-      score += 10;
+      score += 5;
     }
 
     // Check for spelling/grammar indicators (rough heuristic)
@@ -372,5 +410,96 @@ export class HeuristicAgent extends BaseAgent {
     }
 
     return score;
+  }
+
+  /**
+   * Detect whether the page is a news article, blog post, or journalistic content.
+   * These pages naturally contain threat/urgency language (e.g., "breach", "suspended",
+   * "security alert") as part of reporting, NOT as phishing tactics.
+   */
+  private detectNewsContext(
+    content: PageContent,
+    textLower: string,
+    titleLower: string,
+  ): boolean {
+    // Check meta tags and structural indicators from the page
+    const metaEntries = content.metaTags || {};
+    const metaLower = Object.entries(metaEntries)
+      .map(([key, value]) => `${key.toLowerCase()} ${value.toLowerCase()}`)
+      .join(" ");
+
+    // 1. Open Graph type = "article" is a strong signal
+    if (metaLower.includes('og:type') && metaLower.includes('article')) {
+      return true;
+    }
+
+    // 2. Common news/article meta patterns
+    const newsMetaPatterns = [
+      "article:published_time",
+      "article:author",
+      "article:section",
+      "news_keywords",
+      "article:tag",
+      "parsely-page",
+      "sailthru.",
+    ];
+    for (const pattern of newsMetaPatterns) {
+      if (metaLower.includes(pattern)) {
+        return true;
+      }
+    }
+
+    // 3. Title patterns suggesting news
+    const newsTitlePatterns = [
+      " - bbc",
+      " - cnn",
+      " | reuters",
+      " - the guardian",
+      " - ndtv",
+      " | the verge",
+      " - techcrunch",
+      " | ars technica",
+      " - wired",
+      "news",
+      "report:",
+      "breaking:",
+      " - times of india",
+      " | economic times",
+    ];
+    for (const pattern of newsTitlePatterns) {
+      if (titleLower.includes(pattern)) {
+        return true;
+      }
+    }
+
+    // 4. Content-based heuristics: articles tend to be long with journalistic markers
+    const articleMarkers = [
+      "published on",
+      "by reporter",
+      "staff writer",
+      "associated press",
+      "reuters",
+      "read more:",
+      "related stories",
+      "share this article",
+      "subscribe to newsletter",
+      "copyright ©",
+      "all rights reserved",
+      "editor's note",
+      "correspondent",
+      "press release",
+    ];
+    let markerCount = 0;
+    for (const marker of articleMarkers) {
+      if (textLower.includes(marker)) {
+        markerCount++;
+      }
+    }
+    // If the page has 2+ article markers AND is long text, it's likely news
+    if (markerCount >= 2 && textLower.length > 2000) {
+      return true;
+    }
+
+    return false;
   }
 }

@@ -14,8 +14,8 @@ export class ScanCache {
   private maxSize: number;
   private ttlMs: number;
 
-  constructor(maxSize = 100, ttlMs = 5 * 60 * 1000) {
-    // Default: 100 entries, 5 minute TTL
+  constructor(maxSize = 500, ttlMs = 30 * 60 * 1000) {
+    // Default: 500 entries, 30 minute TTL
     this.cache = new Map();
     this.maxSize = maxSize;
     this.ttlMs = ttlMs;

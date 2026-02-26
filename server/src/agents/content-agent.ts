@@ -5,25 +5,29 @@ import type { AgentResult, Signal, PageContent } from "../types/index.js";
 import { chromium, Browser, Page } from "playwright";
 import { CONFIG } from "../config/index.js";
 
-const SYSTEM_PROMPT = `You are an elite cybersecurity analyst specializing in webpage content analysis for phishing detection.
-Analyze the provided page content with EXTREME scrutiny for phishing indicators.
+const SYSTEM_PROMPT = `You are a cybersecurity analyst specializing in webpage content analysis for phishing detection.
+Analyze the provided page content carefully and accurately for phishing indicators.
 
-CRITICAL RED FLAGS (score 70-100):
-- Login forms on non-official domains
-- Password fields combined with brand impersonation
-- Forms submitting to external/suspicious domains
-- Brand logos/names without matching domain
-- Requests for sensitive data (SSN, credit card, bank details)
-- Urgency/threat language ("account suspended", "verify now")
-- CAPTCHA pages or access-denied (hiding content from scanners)
+IMPORTANT: Distinguish between LEGITIMATE sites and PHISHING sites. Many legitimate websites have login forms, password fields, and brand references — this is NORMAL.
 
-MODERATE FLAGS (score 40-70):
-- Generic login pages with no branding
-- Unusual form structures
-- External resource loading
-- Pop-up dialogs or overlays
+CRITICAL RED FLAGS (score 70-100) — require STRONG evidence:
+- Forms submitting credentials to a DIFFERENT domain than the page (cross-origin credential theft)
+- Brand logos/names combined with a completely unrelated domain (e.g., "PayPal" login on random-domain.xyz)
+- Requests for highly sensitive data (SSN, full credit card, bank routing numbers) on non-banking domains
+- CAPTCHA pages specifically designed to hide content from security scanners
 
-Be AGGRESSIVE in scoring. When in doubt, score HIGHER. False positives are acceptable.
+MODERATE FLAGS (score 30-60):
+- Generic login pages with no clear branding on unusual domains
+- Urgency/threat language combined with credential requests
+- External resource loading from suspicious domains
+
+LOW RISK (score 0-30):
+- Login forms on established domains that submit to the SAME domain — this is NORMAL
+- E-commerce sites with payment flows on their own domain
+- News sites with subscription/login walls
+- Any page on a well-known domain
+
+Be ACCURATE. Only score high when there is strong evidence of phishing. A login form alone is NOT phishing.
 
 Provide a risk score (0-100), confidence (0-1), detected signals, and explanation.`;
 
@@ -68,17 +72,17 @@ export class ContentAgent extends BaseAgent {
         signals.push(
           this.createSignal(
             "fetch_blocked",
-            "high",
+            "medium",
             errorMsg,
-            "Page blocked our scanner - possible anti-bot protection hiding phishing content",
+            "Page could not be fetched (may be bot-protection or network issue)",
           ),
         );
         
         return this.createResult(
-          55, // Suspicious, not safe!
-          0.6,
+          25, // Low — failed fetches are inconclusive, not evidence of phishing
+          0.3,
           signals,
-          "Page could not be accessed - this is suspicious as phishing sites often block automated scanners.",
+          "Page could not be accessed — inconclusive (many legitimate sites block scrapers).",
           Date.now() - startTime,
         );
       }
@@ -88,45 +92,49 @@ export class ContentAgent extends BaseAgent {
       signals.push(
         this.createSignal(
           "no_content",
-          "high",
+          "low",
           true,
-          "No page content available - possible evasion technique",
+          "No page content available (inconclusive)",
         ),
       );
       
       return this.createResult(
-        50,
-        0.5,
+        15, // Low — absence of content is not evidence of phishing
+        0.2,
         signals,
-        "Unable to analyze page content - treat with caution.",
+        "Unable to analyze page content — inconclusive.",
         Date.now() - startTime,
       );
     }
 
     // CHECK: Page is blocked/CAPTCHA
+    // Many legitimate sites use Cloudflare, CAPTCHA, or bot protection — this
+    // alone is NOT strong phishing evidence.
     if (pageContent.isBlocked || pageContent.isCaptcha) {
       signals.push(
         this.createSignal(
           "content_blocked",
-          "high",
+          "medium",
           pageContent.blockReason || "Access restricted",
-          "Page shows CAPTCHA or blocks access - common phishing evasion tactic",
+          "Page shows CAPTCHA or blocks access",
         ),
       );
-      localRiskScore += 40;
+      localRiskScore += 15;
     }
 
     // CHECK: Empty page (possible redirect trap)
+    // Many pages appear empty to scrapers (SPAs, lazy loading, JS-rendered content).
+    // This is weak evidence at best.
     if (pageContent.isEmpty) {
       signals.push(
         this.createSignal(
           "empty_page",
-          "high",
+          "low",
           true,
-          "Page is essentially empty - possible redirect/tracking page",
+          "Page appears empty (may be SPA or JS-rendered)",
         ),
       );
-      localRiskScore += 35;
+      localRiskScore += 10;
     }
 
     // Perform local content analysis
@@ -166,14 +174,14 @@ export class ContentAgent extends BaseAgent {
           description: s.description,
         })),
         localRiskScore,
-        instruction: "Be aggressive. Score 70+ if suspicious. Score 90+ if clearly phishing.",
+        instruction: "Be accurate. Score 70+ only with strong phishing evidence. Login forms on their own domain are normal.",
       });
 
       if (llmResult) {
         const allSignals = [...signals, ...llmResult.signals];
 
-        // Take MAXIMUM of local and LLM scores
-        const combinedScore = Math.max(localRiskScore, llmResult.riskScore);
+        // Weighted average of local and LLM scores (not MAX — MAX causes over-scoring)
+        const combinedScore = Math.round(localRiskScore * 0.4 + llmResult.riskScore * 0.6);
 
         return this.createResult(
           combinedScore,
@@ -355,19 +363,48 @@ export class ContentAgent extends BaseAgent {
       );
 
       if (!isSafe) {
-        signals.push(
-          this.createSignal(
-            "login_form_suspicious_domain",
-            "high",
-            hostname,
-            "Login form detected on non-verified domain",
-          ),
-        );
-        score += 25;
+        // Check if the form submits to the SAME domain (legitimate login)
+        const formSubmitsToSameDomain = content.forms.every(form => {
+          if (!form.hasPasswordField || !form.action) return true; // No password or no action = fine
+          try {
+            const formUrl = new URL(form.action, url);
+            const pageUrl = new URL(url);
+            const normalize = (h: string) => h.replace(/^www\./, "");
+            return normalize(formUrl.hostname) === normalize(pageUrl.hostname);
+          } catch {
+            return true; // Invalid URL in action = relative path = same domain
+          }
+        });
+
+        if (formSubmitsToSameDomain) {
+          // Same-domain login form — very low risk, this is normal behavior
+          signals.push(
+            this.createSignal(
+              "login_form_same_domain",
+              "low",
+              hostname,
+              "Login form detected - submits to same domain (normal behavior)",
+            ),
+          );
+          score += 5;
+        } else {
+          // Cross-domain login form — more suspicious
+          signals.push(
+            this.createSignal(
+              "login_form_suspicious_domain",
+              "medium",
+              hostname,
+              "Login form detected on non-verified domain",
+            ),
+          );
+          score += 15;
+        }
       }
     }
 
-    // CHECK: Form submits to external domain (CRITICAL)
+    // CHECK: Form submits to external domain
+    // But SKIP if the external domain is a known auth/payment provider (OAuth, Stripe, etc.)
+    const knownAuthDomains = CONFIG.KNOWN_AUTH_PAYMENT_DOMAINS as readonly string[];
     for (const form of content.forms) {
       if (form.hasPasswordField && form.action) {
         try {
@@ -375,15 +412,23 @@ export class ContentAgent extends BaseAgent {
           const pageUrl = new URL(url);
 
           if (formUrl.hostname !== pageUrl.hostname) {
-            signals.push(
-              this.createSignal(
-                "external_form_action",
-                "critical",
-                form.action,
-                "Credentials submitted to external domain - HIGH RISK",
-              ),
+            // Check if the form target is a known legitimate auth/payment domain
+            const isKnownDomain = knownAuthDomains.some(
+              (d) => formUrl.hostname === d || formUrl.hostname.endsWith(`.${d}`)
             );
-            score += 45;
+
+            if (!isKnownDomain) {
+              signals.push(
+                this.createSignal(
+                  "external_form_action",
+                  "high",
+                  form.action,
+                  "Credentials submitted to unknown external domain",
+                ),
+              );
+              score += 25;
+            }
+            // If it IS a known domain, skip entirely — this is normal (OAuth, Shopify, Stripe, etc.)
           }
         } catch {
           // Invalid URL
@@ -392,46 +437,75 @@ export class ContentAgent extends BaseAgent {
     }
 
     // CHECK: Brand impersonation in title
+    // Context-aware: pages that mention brands in educational/review/comparison
+    // context should NOT be flagged (e.g., "PayPal vs Stripe review")
     const urlLower = url.toLowerCase();
     const titleLower = content.title.toLowerCase();
     const brands = CONFIG.PROTECTED_BRANDS;
 
+    const titleContextKeywords = [
+      "review", "guide", "vs", "versus", "alternative", "how to",
+      "tutorial", "integration", "clone", "comparison", "compare",
+      "competitor", "pricing", "blog", "news", "article", "opinion",
+      "analysis", "overview", "setup", "documentation", "api", "sdk",
+    ];
+    const isTitleEducational = titleContextKeywords.some((kw) => titleLower.includes(kw));
+
     for (const brand of brands) {
       if (titleLower.includes(brand.name) && !urlLower.includes(brand.domain)) {
-        signals.push(
-          this.createSignal(
-            "title_brand_mismatch",
-            "critical",
-            brand.name,
-            `Page claims to be ${brand.name} but URL is not ${brand.domain}`,
-          ),
-        );
-        score += 40;
+        if (isTitleEducational) {
+          // Educational/review context — downgrade to medium, low score
+          signals.push(
+            this.createSignal(
+              "title_brand_mismatch",
+              "medium",
+              brand.name,
+              `Page mentions ${brand.name} (educational/review context detected)`,
+            ),
+          );
+          score += 10;
+        } else {
+          signals.push(
+            this.createSignal(
+              "title_brand_mismatch",
+              "high",
+              brand.name,
+              `Page claims to be ${brand.name} but URL is not ${brand.domain}`,
+            ),
+          );
+          score += 25;
+        }
         break;
       }
     }
 
     // CHECK: Sensitive data requests
-    const sensitivePatterns = [
-      { pattern: /social security|ssn/i, name: "SSN request", score: 35 },
-      { pattern: /credit card|card number|cvv/i, name: "Credit card request", score: 35 },
-      { pattern: /bank account|routing number/i, name: "Bank details request", score: 35 },
-      { pattern: /mother'?s? maiden/i, name: "Security question", score: 25 },
-      { pattern: /date of birth|dob/i, name: "DOB request", score: 15 },
-    ];
+    // IMPORTANT: Only flag if the page actually has forms. Informational pages
+    // that merely mention "credit card" or "SSN" in text (e.g., financial advice
+    // articles, bank FAQ pages) should NOT be flagged.
+    const hasForms = content.forms.length > 0;
+    if (hasForms) {
+      const sensitivePatterns = [
+        { pattern: /social security|ssn/i, name: "SSN request", score: 30 },
+        { pattern: /credit card|card number|cvv/i, name: "Credit card request", score: 30 },
+        { pattern: /bank account|routing number/i, name: "Bank details request", score: 30 },
+        { pattern: /mother'?s? maiden/i, name: "Security question", score: 20 },
+        { pattern: /date of birth|dob/i, name: "DOB request", score: 10 },
+      ];
 
-    for (const { pattern, name, score: patternScore } of sensitivePatterns) {
-      if (pattern.test(content.textContent)) {
-        signals.push(
-          this.createSignal(
-            "sensitive_data_request",
-            "critical",
-            name,
-            `Page requests ${name} - HIGH RISK`,
-          ),
-        );
-        score += patternScore;
-        break; // Only count once
+      for (const { pattern, name, score: patternScore } of sensitivePatterns) {
+        if (pattern.test(content.textContent)) {
+          signals.push(
+            this.createSignal(
+              "sensitive_data_request",
+              "high",
+              name,
+              `Page with forms requests ${name}`,
+            ),
+          );
+          score += patternScore;
+          break; // Only count once
+        }
       }
     }
 

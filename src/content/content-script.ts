@@ -481,10 +481,10 @@ chrome.runtime.onMessage.addListener(
 // Initialize when DOM is ready
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
-    setTimeout(sendPageContent, 500); // Small delay to ensure page is loaded
+    sendPageContent(); // No delay — send immediately when DOM is ready
   });
 } else {
-  setTimeout(sendPageContent, 500);
+  sendPageContent(); // DOM already loaded — send immediately
 }
 
 console.log("[PhishGuard AI] Content script loaded on:", window.location.href);

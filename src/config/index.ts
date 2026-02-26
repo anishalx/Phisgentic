@@ -33,18 +33,53 @@ export const CONFIG = {
     LLM_MAX_TOKENS: 800,
   },
 
-  // Known safe domains (won't be analyzed)
+  // Known safe domains (won't be analyzed - instant skip)
   SAFE_DOMAINS: [
-    "google.com",
-    "microsoft.com",
-    "apple.com",
-    "github.com",
-    "stackoverflow.com",
-    "amazon.com",
-    "facebook.com",
-    "twitter.com",
-    "linkedin.com",
-    "youtube.com",
+    // Search & Tech
+    "google.com", "google.co.in", "google.co.uk", "google.co.jp", "google.de",
+    "google.fr", "google.com.br", "google.ca", "google.com.au",
+    "microsoft.com", "apple.com", "github.com", "stackoverflow.com",
+    "bing.com", "yahoo.com", "duckduckgo.com",
+    // Social Media
+    "facebook.com", "twitter.com", "x.com", "linkedin.com", "instagram.com",
+    "whatsapp.com", "reddit.com", "pinterest.com", "tiktok.com",
+    "snapchat.com", "discord.com", "telegram.org",
+    // Video & Streaming
+    "youtube.com", "netflix.com", "twitch.tv", "spotify.com",
+    "disneyplus.com", "hulu.com", "primevideo.com", "hotstar.com",
+    // E-Commerce & Payments
+    "amazon.com", "amazon.in", "amazon.co.uk", "amazon.de",
+    "flipkart.com", "myntra.com", "meesho.com",
+    "ebay.com", "walmart.com", "target.com", "bestbuy.com",
+    "etsy.com", "shopify.com", "aliexpress.com",
+    "paypal.com", "stripe.com", "razorpay.com",
+    // News & Media
+    "bbc.com", "bbc.co.uk", "cnn.com", "nytimes.com", "reuters.com",
+    "theguardian.com", "forbes.com", "bloomberg.com", "cnbc.com",
+    "ndtv.com", "timesofindia.indiatimes.com", "hindustantimes.com",
+    "indianexpress.com", "thehindu.com", "news18.com",
+    "techcrunch.com", "theverge.com", "wired.com", "cnet.com",
+    "washingtonpost.com", "foxnews.com", "nbcnews.com",
+    "moneycontrol.com", "livemint.com", "economictimes.indiatimes.com",
+    // Banking & Finance
+    "chase.com", "bankofamerica.com", "wellsfargo.com",
+    "hdfcbank.com", "icicibank.com", "sbi.co.in", "axisbank.com",
+    "coinbase.com", "binance.com", "robinhood.com",
+    // Cloud & Dev Tools
+    "gitlab.com", "bitbucket.org", "npmjs.com",
+    "vercel.com", "netlify.com", "cloudflare.com",
+    "figma.com", "canva.com", "notion.so", "slack.com", "zoom.us",
+    // Education & Reference
+    "wikipedia.org", "medium.com", "quora.com",
+    "coursera.org", "udemy.com", "khanacademy.org",
+    // Email & Productivity
+    "gmail.com", "outlook.com", "live.com", "office.com",
+    "protonmail.com", "dropbox.com",
+    // Services
+    "usps.com", "fedex.com", "ups.com", "dhl.com",
+    "booking.com", "airbnb.com", "uber.com",
+    "imdb.com", "yelp.com", "weather.com", "adobe.com",
+    "openai.com", "chatgpt.com", "anthropic.com",
   ],
 
   // Suspicious TLDs
