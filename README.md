@@ -1,199 +1,319 @@
 # PhishGuard AI - Multi-Agent Phishing Detection System
 
-A comprehensive, multi-agent AI-powered phishing detection system featuring **dual-model cross-verification** with two independent LLMs (Groq Llama + Google Gemini Flash) for consensus-based analysis. Delivered through three platforms: a **Web Dashboard**, a **Backend API Server**, and a **Chrome Browser Extension**.
+A comprehensive, multi-agent AI-powered phishing detection system featuring **dual-model cross-verification** with two independent LLMs (Groq Llama 3.3 70B + Google Gemini 2.0 Flash) for consensus-based analysis. The system employs **5 specialized AI agents** that analyze URLs in parallel across multiple dimensions -- URL structure, domain reputation, page content, social engineering heuristics, and live browser behavioral testing. Delivered through three integrated platforms: a **Next.js Web Dashboard** with real-time SSE streaming, a **Node.js Backend API Server** with Playwright browser automation, and a **Chrome Browser Extension** (Manifest V3) for passive real-time protection.
+
+![Architecture](structure.png)
+
+---
+
+## Table of Contents
+
+- [Key Highlights](#key-highlights)
+- [Features](#features)
+  - [Dual-Model Cross-Verification](#dual-model-cross-verification)
+  - [AI Agent System](#ai-agent-system)
+  - [Performance Optimizations](#performance-optimizations)
+  - [Platform Features](#platform-features)
+- [System Architecture](#system-architecture)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [1. Start the Backend API Server](#1-start-the-backend-api-server)
+  - [2. Start the Web Dashboard](#2-start-the-web-dashboard)
+  - [3. Build and Load the Chrome Extension](#3-build-and-load-the-chrome-extension)
+  - [4. Analyze URLs](#4-analyze-urls)
+- [API Reference](#api-reference)
+  - [POST /api/scan](#post-apiscan)
+  - [GET /api/scan/stream](#get-apiscanstream)
+  - [GET /api/health](#get-apihealth)
+- [Agent Deep Dive](#agent-deep-dive)
+  - [URL Agent](#1-url-agent)
+  - [Domain Agent](#2-domain-agent)
+  - [Content Agent](#3-content-agent)
+  - [Heuristic Agent](#4-heuristic-agent)
+  - [Tester Agent](#5-tester-agent)
+- [Orchestrator and Scoring](#orchestrator-and-scoring)
+  - [Parallel Execution Pipeline](#parallel-execution-pipeline)
+  - [Weighted Scoring Formula](#weighted-scoring-formula)
+  - [Critical Veto System](#critical-veto-system)
+  - [Priority Cascade Decision Logic](#priority-cascade-decision-logic)
+- [Dual-Model Consensus Engine](#dual-model-consensus-engine)
+- [Detection Signals Reference](#detection-signals-reference)
+- [Web Dashboard](#web-dashboard)
+- [Chrome Extension](#chrome-extension)
+- [Configuration](#configuration)
+  - [Agent Weights](#agent-weights)
+  - [Risk Thresholds](#risk-thresholds)
+  - [Environment Variables](#environment-variables)
+  - [Safe Domains Whitelist](#safe-domains-whitelist)
+  - [Blocklist Domains](#blocklist-domains)
+  - [Protected Brands](#protected-brands)
+- [Deployment](#deployment)
+  - [Render.com One-Click Deploy](#rendercom-one-click-deploy)
+- [Technologies](#technologies)
+- [API Response Types](#api-response-types)
+- [Security Considerations](#security-considerations)
+- [Known Limitations](#known-limitations)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
 
 ## Key Highlights
 
-- **Dual-Model AI Consensus**: Two independent LLMs (Groq Llama 3.3 70B + Google Gemini 2.0 Flash) cross-verify every analysis for higher accuracy
-- **5 Specialized AI Agents**: URL, Domain, Content, Heuristic, and Tester agents analyze URLs in parallel
-- **Performance Optimized**: LRU caching, parallel agent execution, rate limiting, content truncation
-- **Critical Veto System**: Instant block on high-confidence phishing signals regardless of overall score
-- **3 Delivery Platforms**: Web Dashboard, API Server, Chrome Extension
+- **Dual-Model AI Consensus**: Two independent LLMs (Groq Llama 3.3 70B + Google Gemini 2.0 Flash) cross-verify every analysis, reducing false negatives and increasing reliability
+- **5 Specialized AI Agents**: URL, Domain, Content, Heuristic, and Tester agents analyze URLs in parallel with weighted scoring
+- **Critical Veto System**: Instant block on high-confidence phishing signals (typosquatting, homograph attacks, cross-origin credential forms, logo mismatches) regardless of overall score
+- **Performance Optimized**: LRU caching (500 entries, 30-min TTL), parallel agent execution with deferred promises, token bucket rate limiting, content truncation, early-exit fast paths
+- **Vision-Based Logo Detection**: Groq Vision model (Llama 3.2 11B Vision) identifies brand logos on suspicious domains
+- **Real-Time Streaming**: Server-Sent Events (SSE) stream agent activity logs to the dashboard in real time
+- **3 Delivery Platforms**: Next.js Web Dashboard, Express API Server, Chrome Extension (Manifest V3)
+- **Deployment Ready**: Render.com blueprint for one-click cloud deployment
+
+---
 
 ## Features
 
 ### Dual-Model Cross-Verification
 
-Each AI agent sends the same analysis prompt to **both** Groq Llama and Google Gemini Flash independently. Results are compared using a consensus engine:
+Each AI agent sends the same analysis prompt to **both** Groq Llama and Google Gemini Flash independently. Results are compared using a consensus engine with configurable disagreement strategies:
 
-| Scenario | Outcome |
-|----------|---------|
-| Both models agree | Use agreed result with boosted confidence |
-| Models disagree on risk | Take the higher (more cautious) risk score |
-| One model fails | Gracefully fall back to the working model |
-| Both models fail | Fall back to local heuristic analysis only |
+| Scenario | Consensus Strategy | Outcome |
+|----------|--------------------|---------|
+| Both models agree (score diff <= 15) | `consensus-average` | Confidence-weighted average of both scores |
+| Models disagree on risk (score diff > 15) | `conservative` / `average` / `max` | Configurable -- defaults to taking the higher (more cautious) risk score |
+| One model fails | `single-model-fallback` | Gracefully falls back to the working model's result |
+| Both models fail | Local heuristics only | Falls back to deterministic local analysis (no LLM) |
 
-This dual-model approach significantly reduces false negatives (missed phishing) and increases reliability.
+This dual-model approach significantly reduces false negatives (missed phishing) and increases overall reliability by requiring independent agreement from two architecturally different LLMs.
 
 ### AI Agent System
 
-| Agent | Weight | Analysis Focus |
-|-------|--------|----------------|
-| **URL Agent** | 20% | URL structure, encoding, typosquatting, homograph attacks |
-| **Domain Agent** | 30% | Domain reputation, blocklists, brand impersonation, DGA detection |
-| **Content Agent** | 25% | Page content, forms, login fields, brand mismatches via Playwright |
-| **Heuristic Agent** | 15% | Urgency language, threats, social engineering patterns |
-| **Tester Agent** | 10% | Redirects, popups, downloads, browser warnings, vision-based logo detection |
+The system deploys 5 specialized agents that each focus on a different dimension of phishing detection:
+
+| Agent | Weight | Analysis Focus | Key Detection Capabilities |
+|-------|--------|----------------|----------------------------|
+| **URL Agent** | 20% | URL structure analysis | IP addresses, typosquatting, homograph attacks, suspicious TLDs, URL shorteners, encoded characters, phishing keywords |
+| **Domain Agent** | 30% | Domain reputation & identity | Blocklist matching, brand impersonation, DGA detection, suspicious hosting, excessive hyphens, domain length anomalies |
+| **Content Agent** | 25% | Page content analysis | Cross-origin form submissions, brand mismatches, sensitive data requests, urgency language, mismatched links, hidden elements |
+| **Heuristic Agent** | 15% | Social engineering patterns | Urgency/threat language, reward scams, poor grammar, manipulative titles, suspicious URL parameters, news context awareness |
+| **Tester Agent** | 10% | Live browser behavioral testing | Redirects, popups, downloads, permission requests, safety warnings, form hijacking, vision-based logo detection, screenshot capture |
+
+Each agent combines **fast local heuristic checks** (deterministic, sub-millisecond) with **dual-model LLM analysis** (deeper semantic understanding) using a configurable weighted blend (typically 40% local + 60% LLM).
 
 ### Performance Optimizations
 
-- **Parallel Agent Execution**: All 5 agents run simultaneously using a deferred promise pattern. TesterAgent, URL, and Domain start immediately; Content and Heuristic await page content from TesterAgent, then start their analysis in parallel.
-- **LRU Scan Cache**: 100-entry cache with 5-minute TTL for instant repeat scans (~150ms vs ~30s)
-- **LLM Rate Limiting**: Token bucket algorithm - Groq at 28 req/min, Gemini at 14 req/min
-- **Content Truncation**: LLM payloads capped at 4000 chars per string, 20 items per array, max depth 5
-- **SSE Server-Side Timeout**: 60-second auto-disconnect prevents hanging connections
+- **Parallel Agent Execution**: All 5 agents run simultaneously using a deferred promise pattern. URL and Domain agents start immediately; Tester Agent launches a headless browser; Content and Heuristic agents await page content from Tester Agent, then run their analysis in parallel.
+- **Early-Exit Fast Path**: If both URL Agent and Domain Agent score < 10 (clearly safe), the remaining 3 agents are skipped entirely, saving 5-10 seconds per scan.
+- **LLM Fast Path**: Individual agents skip LLM calls when local analysis produces a score < 10 (clearly safe) or >= 80 (clearly dangerous), saving 2-4 seconds per agent.
+- **LRU Scan Cache**: 500-entry cache with 30-minute TTL for instant repeat scans. URL normalization ensures consistent cache hits.
+- **LLM Rate Limiting**: Token bucket algorithm prevents API quota exhaustion -- Groq at 28 req/min (below 30 RPM free tier), Gemini at 14 req/min (below 15 RPM free tier).
+- **Content Truncation**: LLM payloads capped at 4,000 chars per string, 20 items per array, max recursion depth 5, preventing token overflow.
+- **Browser Singleton**: Playwright Chromium instance is reused across scans (only the browser context is recycled per scan).
+- **SSE Keepalive**: 20-second keepalive pings prevent proxy/CDN timeouts on long-running scans.
+- **Server-Side Timeout**: 120-second auto-disconnect on SSE streams prevents hanging connections.
 
 ### Platform Features
 
-- **Web Dashboard**: Modern Next.js 14 interface with real-time agent streaming via SSE
-- **Chrome Extension**: Passive real-time protection with fullscreen warning overlays
-- **Visual Verdicts**: Clear Safe/Suspicious/Dangerous verdicts with risk scores
-- **Screenshot Capture**: See what the page looks like before visiting
-- **Vision-Based Logo Detection**: Identifies brand logos on suspicious domains using Groq Vision (Llama 3.2 11B Vision)
-- **Deployment Ready**: Render.com blueprint for one-click deployment
+- **Web Dashboard**: Modern Next.js 14 interface with glassmorphism design, real-time agent log streaming via SSE, animated verdict gauges, screenshot preview, and expandable per-agent breakdowns
+- **Chrome Extension**: Passive real-time protection with fullscreen warning overlays, risk score ring in popup, scan history, per-domain whitelist, and one-click "Trust Site" functionality
+- **Backend API**: RESTful + SSE endpoints, Zod input validation, Helmet security headers, CORS with extension support, express-rate-limit (30 req/min per IP), graceful Playwright shutdown
 
-## Architecture
+---
+
+## System Architecture
 
 ```
 +-----------------------+                               +-----------------------+
 |    Web Dashboard      |                               |  Chrome Extension     |
-|  (Next.js + Tailwind) |                               |  (Manifest V3)        |
-+-----------+-----------+                               +-----------+-----------+
-            |                                                       |
+|  (Next.js 14 +        |                               |  (Manifest V3)        |
+|   TailwindCSS +       |                               |  Service Worker +     |
+|   Framer Motion)      |                               |  Content Script +     |
++-----------+-----------+                               |  Popup UI)            |
+            |                                           +-----------+-----------+
             +---------------------------+---------------------------+
                                         |
-                                   HTTP / SSE
+                              HTTP POST / SSE GET
                                         |
                                         v
 +-----------------------------------------------------------------------+
 |                          Backend API Server                            |
-|                       (Express + Playwright)                           |
+|                    (Express + TypeScript + Playwright)                 |
+|                                                                       |
+|   Middleware: Helmet | CORS | Rate Limit (30/min) | Zod Validation    |
 |                                                                       |
 |   +---------------------------------------------------------------+   |
 |   |                        Orchestrator                            |   |
-|   |  (Weighted scoring + Critical veto + Consensus detection)      |   |
-|   |  (Parallel execution with deferred promise pattern)            |   |
+|   |  Parallel execution with deferred promise pattern              |   |
+|   |  5-layer priority cascade + critical veto system               |   |
+|   |  Weighted scoring + early-exit optimization                    |   |
 |   |                                                                |   |
 |   |  +--------+ +--------+ +---------+ +----------+ +---------+  |   |
 |   |  |  URL   | | Domain | | Content | | Heuristic| | Tester  |  |   |
 |   |  | Agent  | | Agent  | |  Agent  | |  Agent   | |  Agent  |  |   |
 |   |  | (20%)  | | (30%)  | |  (25%)  | |  (15%)   | |  (10%)  |  |   |
-|   |  +--------+ +--------+ +---------+ +----------+ +---------+  |   |
+|   |  +---+----+ +---+----+ +----+----+ +----+-----+ +----+----+  |   |
+|   |      |          |           |            |            |       |   |
+|   |      +-----+----+-----+----+------+-----+-----+------+       |   |
+|   |            |          |           |            |              |   |
 |   +---------------------------------------------------------------+   |
-|                               |                                       |
-|           +-------------------+-------------------+                   |
-|           v                                       v                   |
-|  +---------------------+              +---------------------+         |
-|  |    Groq LLM API     |              | Google Gemini API   |         |
-|  | Llama 3.3 70B (text)|              | Gemini 2.0 Flash    |         |
-|  | Llama 3.2 11B (vis.)|              | (cross-verification)|         |
-|  +---------------------+              +---------------------+         |
+|                |                                   |                  |
+|    +-----------+----------+           +-----------+-----------+       |
+|    v                      v           v                       v       |
+|  +---------------------+  +---------------------+                    |
+|  |    Groq LLM API     |  | Google Gemini API   |                    |
+|  | Llama 3.3 70B (text)|  | Gemini 2.0 Flash    |                    |
+|  | Llama 3.2 11B (vis.)|  | (cross-verification)|                    |
+|  +---------------------+  +---------------------+                    |
 |                                                                       |
 |   +---------------------------------------------------------------+   |
 |   |              Performance Layer                                 |   |
-|   |  [LRU Cache] [Rate Limiter] [Content Truncation]              |   |
+|   |  [LRU Cache: 500 entries, 30min TTL]                          |   |
+|   |  [Rate Limiter: Groq 28/min, Gemini 14/min]                   |   |
+|   |  [Content Truncation: 4000 chars, 20 items, depth 5]          |   |
+|   |  [Browser Singleton: Chromium reuse across scans]             |   |
 |   +---------------------------------------------------------------+   |
 +-----------------------------------------------------------------------+
 ```
+
+---
 
 ## Project Structure
 
 ```
 agent-browser/
-├── server/                          # Backend API Server
+├── server/                              # Backend API Server
 │   ├── src/
 │   │   ├── agents/
-│   │   │   ├── base-agent.ts        # Abstract agent + dual-model consensus engine
-│   │   │   ├── url-agent.ts         # URL structure analysis
-│   │   │   ├── domain-agent.ts      # Domain reputation checks
-│   │   │   ├── content-agent.ts     # Page content analysis (Playwright)
-│   │   │   ├── heuristic-agent.ts   # Social engineering patterns
-│   │   │   ├── tester-agent.ts      # Browser behavioral testing + vision
-│   │   │   └── orchestrator.ts      # Parallel agent coordination & scoring
+│   │   │   ├── base-agent.ts            # Abstract agent class + dual-model consensus engine
+│   │   │   ├── url-agent.ts             # URL structure analysis (typosquatting, homographs)
+│   │   │   ├── domain-agent.ts          # Domain reputation checks (blocklists, brand impersonation)
+│   │   │   ├── content-agent.ts         # Page content analysis via Playwright
+│   │   │   ├── heuristic-agent.ts       # Social engineering pattern matching
+│   │   │   ├── tester-agent.ts          # Browser behavioral testing + vision logo detection
+│   │   │   └── orchestrator.ts          # Parallel agent coordination, weighted scoring, veto logic
 │   │   ├── api/
-│   │   │   ├── groq-client.ts       # Groq LLM client (text + vision)
-│   │   │   └── gemini-client.ts     # Google Gemini Flash client
+│   │   │   ├── groq-client.ts           # Groq LLM client (text + vision, singleton, rate-limited)
+│   │   │   └── gemini-client.ts         # Google Gemini Flash client (singleton, rate-limited)
 │   │   ├── config/
-│   │   │   └── index.ts             # Weights, thresholds, blocklists, LLM config
+│   │   │   └── index.ts                 # Weights, thresholds, blocklists, whitelists, LLM config
 │   │   ├── types/
-│   │   │   └── index.ts             # TypeScript type definitions
+│   │   │   └── index.ts                 # TypeScript type definitions (20+ interfaces)
 │   │   ├── utils/
-│   │   │   ├── url-parser.ts        # URL parsing utilities
-│   │   │   ├── cache.ts             # LRU scan cache with TTL
-│   │   │   └── rate-limiter.ts      # Token bucket rate limiter
-│   │   └── server.ts                # Express server entry point
-│   ├── package.json
-│   └── tsconfig.json
+│   │   │   ├── url-parser.ts            # URL parsing, TLD extraction, homoglyph detection, Levenshtein distance
+│   │   │   ├── cache.ts                 # LRU scan cache with TTL and URL normalization
+│   │   │   └── rate-limiter.ts          # Token bucket rate limiter with async queue
+│   │   └── server.ts                    # Express server: endpoints, SSE streaming, middleware, graceful shutdown
+│   ├── package.json                     # Dependencies: express, playwright, zod, helmet, cors
+│   └── tsconfig.json                    # TypeScript config (ES2022, NodeNext modules)
 │
-├── web-dashboard/                   # Frontend Dashboard
+├── web-dashboard/                       # Frontend Dashboard (Next.js 14)
 │   ├── src/
 │   │   ├── app/
-│   │   │   ├── layout.tsx           # Root layout
-│   │   │   ├── page.tsx             # Main page
-│   │   │   └── globals.css          # Global styles
+│   │   │   ├── layout.tsx               # Root layout with Inter font
+│   │   │   ├── page.tsx                 # Main page: state management, SSE connection, component composition
+│   │   │   └── globals.css              # Custom CSS: glassmorphism, gauges, signal badges, terminal theme
 │   │   ├── components/
-│   │   │   ├── ScanningInterface.tsx # URL input & scan trigger
-│   │   │   ├── StatusFeed.tsx       # Real-time agent logs
-│   │   │   ├── ResultCard.tsx       # Verdict display
-│   │   │   ├── AgentBreakdown.tsx   # Per-agent detail view
-│   │   │   └── index.ts            # Barrel export
+│   │   │   ├── ScanningInterface.tsx     # URL input form, validation, quick-test buttons (safe/suspicious/phishing)
+│   │   │   ├── StatusFeed.tsx           # Terminal-styled real-time agent activity log viewer
+│   │   │   ├── ResultCard.tsx           # Verdict display: SVG gauge, critical signals, screenshot, metadata
+│   │   │   ├── AgentBreakdown.tsx       # Expandable accordion: per-agent scores, explanations, signals
+│   │   │   └── index.ts                # Barrel export
 │   │   ├── lib/
-│   │   │   └── api.ts              # API client (fetch + SSE)
+│   │   │   └── api.ts                  # API client: fetch-based SSE streaming, retry logic, health check
 │   │   └── types/
-│   │       └── index.ts            # Dashboard types
-│   ├── package.json
-│   ├── tailwind.config.js
-│   └── next.config.js
+│   │       ├── index.ts                # Dashboard TypeScript types (Signal, AgentResult, FinalVerdict, etc.)
+│   │       └── framer-motion.d.ts      # Framer Motion type declarations
+│   ├── package.json                    # Dependencies: next 14, react 18, framer-motion, lucide-react, tailwindcss
+│   ├── tailwind.config.js              # Custom colors (safe/warning/danger), animations
+│   ├── next.config.js                  # Standalone output mode for deployment
+│   └── postcss.config.js              # PostCSS with Tailwind + Autoprefixer
 │
-├── src/                             # Chrome Browser Extension
+├── src/                                 # Chrome Browser Extension (Manifest V3)
 │   ├── background/
-│   │   └── service-worker.ts        # Navigation interception
+│   │   └── service-worker.ts            # Navigation interception, API communication, badge updates, retry logic
 │   ├── content/
-│   │   └── content-script.ts        # Page extraction + warning overlay
+│   │   └── content-script.ts            # Page content extraction, fullscreen warning overlay injection, XSS-safe rendering
 │   ├── ui/popup/
-│   │   ├── popup.ts                 # Popup logic
-│   │   ├── popup.html               # Popup markup
-│   │   └── popup.css                # Popup styles
+│   │   ├── popup.ts                     # Popup logic: status display, ring progress, agent cards, history, trust/report
+│   │   ├── popup.html                   # Popup markup: header, SVG ring, agent grid, signals, quick actions, history panel
+│   │   └── popup.css                    # Dark theme design system with CSS custom properties
 │   ├── config/
-│   │   └── index.ts                 # Extension config
+│   │   └── index.ts                     # Extension config: API base URL, thresholds, safe domains, patterns
 │   ├── types/
-│   │   └── index.ts                 # Extension types
+│   │   └── index.ts                     # Extension type system (20+ interfaces, message types, storage shape)
 │   ├── api/
-│   │   └── groq-client.ts           # Extension Groq client
+│   │   └── groq-client.ts              # Groq client reference (not used at runtime -- backend handles LLM calls)
 │   └── utils/
-│       ├── url-parser.ts            # URL parsing
-│       └── storage.ts               # Chrome storage wrapper
+│       ├── url-parser.ts                # URL parsing, TLD handling, homoglyph detection, Levenshtein distance
+│       └── storage.ts                   # Chrome storage wrapper: settings, whitelist, history, API key CRUD
 │
-├── manifest.json                    # Chrome Extension MV3 manifest
-├── vite.config.ts                   # Vite build config for extension
-├── render.yaml                      # Render.com deployment blueprint
-├── .env.example                     # Environment variable template
-└── README.md
+├── scripts/
+│   └── copy-assets.js                   # Build script: copies manifest.json, assets/, popup.html/css to dist/
+│
+├── assets/                              # Extension assets
+│   ├── icon-16.png                      # Extension icon 16x16
+│   ├── icon-48.png                      # Extension icon 48x48
+│   └── icon-128.png                     # Extension icon 128x128
+│
+├── manifest.json                        # Chrome Extension Manifest V3 configuration
+├── vite.config.ts                       # Vite build config for extension (3 entry points)
+├── render.yaml                          # Render.com deployment blueprint (API + Dashboard)
+├── .env.example                         # Environment variable template
+├── .gitignore                           # Git ignore rules
+├── tsconfig.json                        # Root TypeScript config for extension (ES2022, bundler)
+├── package.json                         # Root package: extension build scripts, vite, @types/chrome
+└── README.md                            # This file
 ```
 
-## Quick Start
+---
+
+## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+
-- npm or yarn
-- A [Groq API key](https://console.groq.com/) (required)
-- A [Google Gemini API key](https://aistudio.google.com/apikey) (optional, enables dual-model)
+- **Node.js 18+** (LTS recommended)
+- **npm** (included with Node.js)
+- **Groq API Key** (required) -- [Get one free at console.groq.com](https://console.groq.com/)
+- **Google Gemini API Key** (optional, enables dual-model consensus) -- [Get one free at aistudio.google.com](https://aistudio.google.com/apikey)
 
-### 1. Start the Backend API
+### 1. Start the Backend API Server
 
 ```bash
 cd server
 npm install
+
+# Create your environment file
 cp .env.example .env
-# Edit .env and add your API keys:
-#   GROQ_API_KEY=your_groq_key
-#   GEMINI_API_KEY=your_gemini_key    (optional)
-#   DUAL_MODEL_ENABLED=true           (optional)
-npm run dev
 ```
 
-The API server runs on `http://localhost:3001`.
+Edit the `.env` file and add your API keys:
+
+```env
+# Required -- Primary LLM
+GROQ_API_KEY=your_groq_api_key_here
+
+# Optional -- Enables dual-model cross-verification
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Enable dual-model consensus (set to "true" if you have both keys)
+DUAL_MODEL_ENABLED=true
+```
+
+Start the server:
+
+```bash
+# Development mode (with hot reload via tsx)
+npm run dev
+
+# Production mode
+npm run build
+npm start
+```
+
+The API server runs on **`http://localhost:3001`** by default.
+
+> **Note**: On first run, Playwright will download the Chromium browser binary (~150MB). This is a one-time download.
 
 ### 2. Start the Web Dashboard
 
@@ -203,30 +323,76 @@ npm install
 npm run dev
 ```
 
-The dashboard runs on `http://localhost:3000`.
+The dashboard runs on **`http://localhost:3000`** by default.
 
-### 3. Analyze URLs
+### 3. Build and Load the Chrome Extension
+
+```bash
+# From the project root (agent-browser/)
+npm install
+npm run build
+```
+
+Load the extension in Chrome:
+
+1. Navigate to `chrome://extensions/`
+2. Enable **Developer mode** (toggle in the top-right corner)
+3. Click **Load unpacked**
+4. Select the `dist/` folder that was created by the build step
+
+> **Important**: The Chrome extension requires the backend API server to be running at `http://localhost:3001`. Make sure the server is started before using the extension.
+
+### 4. Analyze URLs
+
+**Via Web Dashboard:**
 
 1. Open `http://localhost:3000` in your browser
-2. Enter a URL to analyze (e.g., `https://google.com`)
-3. Click "Scan URL"
-4. Watch the agents analyze in real-time
-5. View the detailed verdict with screenshot and agent breakdown
+2. Enter a URL to analyze (e.g., `https://google.com`) or click a quick-test button
+3. Click **Scan URL**
+4. Watch the agents analyze in real-time via the terminal-styled status feed
+5. View the detailed verdict with risk score gauge, screenshot, and per-agent breakdown
 
-## API Endpoints
+**Via Chrome Extension:**
+
+1. Simply browse the web -- the extension automatically intercepts every navigation
+2. For dangerous/suspicious sites, a fullscreen warning overlay appears
+3. Click the extension icon to see the risk score ring, agent breakdown, and detected signals
+4. Use **Trust Site** to whitelist a domain, or **Report** to flag false positives
+
+**Via API (curl):**
+
+```bash
+# Standard JSON response
+curl -X POST http://localhost:3001/api/scan \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com"}'
+
+# SSE streaming response
+curl -N "http://localhost:3001/api/scan/stream?url=https://example.com"
+```
+
+---
+
+## API Reference
 
 ### POST /api/scan
 
-Analyze a URL for phishing indicators.
+Analyze a URL for phishing indicators. Returns the complete verdict as a single JSON response.
 
 **Request:**
+
 ```json
 {
   "url": "https://example.com"
 }
 ```
 
-**Response:**
+- URL must be a valid URL (validated by Zod)
+- Maximum URL length: 2,048 characters
+- Rate limited: 30 requests/minute per IP
+
+**Response (200 OK):**
+
 ```json
 {
   "success": true,
@@ -235,205 +401,655 @@ Analyze a URL for phishing indicators.
     "overallRiskScore": 0,
     "confidence": 0.99,
     "summary": "SAFE - This is a verified trusted domain.",
-    "screenshot": "base64...",
-    "agentResults": [...]
+    "url": "https://example.com",
+    "timestamp": 1709123456789,
+    "screenshot": "data:image/jpeg;base64,...",
+    "agentResults": [
+      {
+        "agentId": "urlAgent",
+        "agentName": "URL Analysis Agent",
+        "riskScore": 0,
+        "confidence": 0.95,
+        "signals": [],
+        "explanation": "No suspicious URL patterns detected.",
+        "executionTimeMs": 45
+      }
+    ]
   },
-  "logs": [...]
+  "logs": [
+    {
+      "agentId": "orchestrator",
+      "agentName": "Orchestrator",
+      "message": "Starting parallel agent analysis...",
+      "timestamp": 1709123456000,
+      "type": "info"
+    }
+  ]
 }
 ```
 
-### GET /api/scan/stream?url=...
+**Error Response (400/500):**
 
-SSE endpoint for real-time analysis with streaming agent logs.
+```json
+{
+  "success": false,
+  "error": "Invalid URL format",
+  "logs": []
+}
+```
 
-**Events:**
-- `log` - Agent activity updates
-- `result` - Final verdict
-- `done` - Analysis complete
-- `error` - Error occurred
+### GET /api/scan/stream
+
+SSE (Server-Sent Events) endpoint for real-time analysis with streaming agent logs. This is the primary endpoint used by the web dashboard.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | string | Yes | The URL to analyze (URL-encoded) |
+
+**Example:**
+
+```
+GET /api/scan/stream?url=https%3A%2F%2Fexample.com
+```
+
+**SSE Event Types:**
+
+| Event | Data Format | Description |
+|-------|-------------|-------------|
+| `log` | `AgentLog` JSON | Real-time agent activity update (sent multiple times) |
+| `result` | `FinalVerdict` JSON | Final verdict with scores and agent results (sent once) |
+| `done` | `"done"` | Analysis complete signal (sent once, last event) |
+| `error` | `{ error: string }` JSON | Error occurred during analysis |
+
+**SSE Headers Set:**
+
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+X-Accel-Buffering: no
+```
+
+**Connection Behavior:**
+
+- Keepalive pings sent every 20 seconds (SSE comment `: keepalive`)
+- Server-side timeout: 120 seconds
+- Cached results are replayed instantly as SSE events
 
 ### GET /api/health
 
 Health check endpoint with cache statistics.
 
 **Response:**
+
 ```json
 {
   "status": "ok",
-  "timestamp": 1234567890,
+  "timestamp": 1709123456789,
   "cache": {
     "size": 5,
-    "maxSize": 100,
-    "ttlMs": 300000
+    "maxSize": 500,
+    "ttlMs": 1800000
   }
 }
 ```
 
-## How Scoring Works
+---
 
-Each agent returns:
+## Agent Deep Dive
 
-- `riskScore`: 0-100 (0 = safe, 100 = definitely phishing)
-- `confidence`: 0-1 (how confident the agent is)
-- `signals`: Array of detected indicators
-- `explanation`: Human-readable analysis
+All agents extend the abstract `BaseAgent` class, which provides:
+- LLM integration via both `GroqClient` and `GeminiClient`
+- Dual-model consensus engine (`dualModelAnalyze()`)
+- Payload truncation for LLM calls
+- Signal and result factory methods
+- Score clamping (0-100) and confidence clamping (0-1)
 
-When dual-model is enabled, each agent's analysis includes a `modelComparison` object showing the results from both Groq and Gemini, along with the consensus method used.
+Each agent follows the same pattern:
+1. **Local heuristic analysis** (fast, deterministic)
+2. **Fast-path decision** (skip LLM if clearly safe or clearly dangerous)
+3. **Dual-model LLM analysis** (if needed)
+4. **Score blending** (weighted combination of local + LLM scores)
 
-The orchestrator combines scores using a weighted formula:
+### 1. URL Agent
+
+**ID:** `urlAgent` | **Weight:** 20% | **Score Blend:** 40% local + 60% LLM
+
+Analyzes URL structure for phishing indicators without fetching the page.
+
+| Detection Check | Condition | Score Impact | Severity |
+|----------------|-----------|--------------|----------|
+| URL length | > 100 characters | +5 | medium |
+| URL length | > 75 characters | +3 | low |
+| IP address instead of domain | Public IPv4 detected (excludes private/local) | +25 | critical |
+| Subdomain depth | > 3 levels deep | +8 | medium |
+| Suspicious TLD | `.tk`, `.ml`, `.ga`, `.cf`, `.gq`, `.xyz`, `.top`, `.click`, `.icu`, `.buzz`, `.monster`, etc. | +20 | high |
+| URL shortener | `bit.ly`, `tinyurl.com`, `t.co`, `goo.gl`, `ow.ly`, etc. (16 services) | +15 | medium |
+| Encoded characters | `%XX` patterns in URL | +3 | low |
+| Special characters | > 10 special chars in pathname | +10 | medium |
+| Homograph attack | Cyrillic, Greek, or Latin Extended Unicode characters (e.g., Cyrillic "а" vs Latin "a") | +35 | critical |
+| Phishing keywords | > 2 keywords (`login`, `verify`, `secure`, `password`, etc.) in path | +15 | high |
+| Typosquatting | Levenshtein distance 1-2 from a protected brand name | +35 | critical |
+| No HTTPS | HTTP protocol used | +10 | medium |
+| Non-standard port | Port is not 80, 443, or empty | +8 | medium |
+
+**Fast Path:** If local score < 10, returns immediately without calling the LLM (saves 2-4 seconds).
+
+### 2. Domain Agent
+
+**ID:** `domainAgent` | **Weight:** 30% (highest) | **Score Blend:** 40% local + 60% LLM
+
+Analyzes domain reputation, brand impersonation, and blocklist matching. This is the most critical agent.
+
+| Detection Check | Condition | Score Impact | Severity |
+|----------------|-----------|--------------|----------|
+| Safe domain | Matches 150+ trusted domains (Google, Microsoft, etc.) | **Instant score 0** | - |
+| Blocklist match | `duckdns.org`, `000webhostapp.com`, `ddns.net`, etc. | **Instant score 95** | critical |
+| Suspicious hosting | `000webhostapp.com`, `forms.gle`, `sites.google.com`, etc. | +20 | high |
+| Brand impersonation | Brand name found in domain segments, not on official domain | +45 | critical |
+| Brand in subdomain | Brand name in subdomain but different main domain | +40 | critical |
+| Suspicious TLD | Matches suspicious TLD list | +25 | high |
+| Suspicious patterns | `-login`, `-secure`, `-verify`, `-account` in hostname | +5 to +12 | medium |
+| DGA detection | Consonant ratio > 0.85, vowel ratio < 0.12, 5+ consecutive consonants | +30 | high |
+| Hostname length | > 50 chars: +15, > 35 chars: +8 | +8 to +15 | medium/high |
+| Multiple hyphens | > 3 hyphens: +20, > 1 hyphen: +8 | +8 to +20 | medium/high |
+
+**Brand Impersonation Logic:** Short brand names (<=3 chars like "ups", "dhl") use exact segment matching (split on dots/hyphens) to avoid false positives. For example, "setup.com" does NOT match "ups", but "ups-login.evil.com" does.
+
+**Fast Paths:**
+- Local score < 10: returns immediately, skips LLM
+- Local score >= 80: returns immediately with confidence 0.95, skips LLM
+
+### 3. Content Agent
+
+**ID:** `contentAgent` | **Weight:** 25% | **Score Blend:** 40% local + 60% LLM
+
+Analyzes page content using Playwright headless browser. Fetches and renders the page, then examines forms, links, meta tags, and text content.
+
+| Detection Check | Condition | Score Impact | Severity |
+|----------------|-----------|--------------|----------|
+| External form action | Password form submitting to unknown external domain (skips known auth providers like auth0, okta, stripe) | +25 | critical |
+| Brand impersonation in title | Brand name in page title but URL is not the brand's domain | +25 (or +10 with educational context) | high |
+| Sensitive data requests | SSN, credit card, bank account, maiden name, DOB requested via forms | +10 to +30 | high/critical |
+| Urgency/threat language | "account suspended", "verify now", "unauthorized access", time pressure | +10 per match (max +30) | medium/high |
+| Mismatched brand links | Link text says "PayPal" but href goes to a different domain | +35 | critical |
+| CAPTCHA/blocked page | Cloudflare challenge, "verify you are human" | +15 | medium |
+| Empty page | Body text < 100 chars | +10 | low |
+
+**Educational Context Detection:** Words like "review", "guide", "vs", "tutorial", "blog", "api" in the title downgrade brand-impersonation severity from +25 to +10.
+
+**Known Auth/Payment Domains:** Cross-origin form submissions to legitimate auth providers (auth0.com, okta.com, accounts.google.com, stripe.com, paypal.com, razorpay.com, etc.) are excluded from phishing signals.
+
+**Playwright Configuration:** Chromium headless, viewport 1280x720, Chrome 120 user agent, `domcontentloaded` wait strategy.
+
+### 4. Heuristic Agent
+
+**ID:** `heuristicAgent` | **Weight:** 15% | **Score Blend:** 30% local + 70% LLM
+
+Detects social engineering patterns and behavioral manipulation tactics. Features **news context awareness** to avoid false positives on news articles that naturally contain threat-related language.
+
+| Detection Check | Condition | Score Impact | Severity |
+|----------------|-----------|--------------|----------|
+| Urgency language | >= 3 matches ("urgent", "immediately", "24 hours", "verify now", "action required") | +20 | critical |
+| Urgency language | 1-2 matches | +8 | medium |
+| Threat language | >= 5 matches ("suspended", "locked", "unauthorized", "breach", "compromised") | +15 | high |
+| Threat language | >= 3 matches | +8 | medium |
+| Sensitive data requests | SSN, credit card, CVV, PIN, DOB, maiden name, bank account | +20 | critical |
+| Reward/prize scams | "you have won", "congratulations", "claim your prize", "gift card", "free iPhone" | +10 | medium |
+| Manipulative title | Title contains "verify", "confirm", or "secure" | +5 | low |
+| Poor grammar | Common typos: "recieve", "occured", "youre account", etc. | +10 | medium |
+| Urgency in URL | Urgency patterns as URL path segments | +15 | high |
+| Suspicious parameters | > 2 of: `token`, `verify`, `confirm`, `secure`, `login`, `session` | +15 | high |
+| Base64-like data | 30+ chars of `[A-Za-z0-9+/=]` in URL | +10 | medium |
+
+**News Context Detection:** Returns true if the page has `og:type=article` meta tags, news-specific meta tags (`article:published_time`, `news_keywords`), news outlet names in the title (BBC, CNN, Reuters), or 2+ article markers ("published on", "staff writer", "copyright") with text > 2000 chars. In news context, urgency/threat thresholds are raised significantly to avoid false positives.
+
+### 5. Tester Agent
+
+**ID:** `testerAgent` | **Weight:** 10% | **Score Blend:** 40% local + 60% LLM
+
+Performs live browser behavioral testing using Playwright. Launches a headless Chromium browser, navigates to the URL, and monitors for suspicious behaviors.
+
+| Detection Check | Condition | Score Impact | Severity |
+|----------------|-----------|--------------|----------|
+| Cross-origin password form | Form with password field submitting to a different domain | +50 | critical |
+| Cross-origin credit card form | Form with credit card field submitting to a different domain | +50 | critical |
+| Safety warning | Browser error page or Safe Browsing block | +40 | critical |
+| Download attempted | Automatic file download triggered | +30 | critical |
+| Excessive redirects | > 3 redirects | +20 | high |
+| Cross-domain redirect | Original domain != final domain (normalized, excludes www) | +15 | high |
+| Permission requests | Browser permission dialogs (geolocation, notifications, etc.) | +15 | high |
+| Popup dialogs | Alert/confirm/prompt dialogs on page load | +15 | medium |
+| Overlays detected | Modal, popup, or overlay CSS elements on page load | +10 | medium |
+| Slow load | > 15 seconds load time | +10 | medium |
+| Console errors | > 5 JavaScript errors | +10 | low |
+| Cross-origin POST form | Non-credential form posting cross-origin | +8 | medium |
+
+**Vision-Based Logo Detection:**
+
+1. Takes a JPEG screenshot of the page (quality 70)
+2. Sends the screenshot to Groq Vision model (Llama 3.2 11B Vision)
+3. The model identifies any brand logos visible on the page
+4. Cross-references detected brands against a mapping of 30+ brands to their legitimate domains
+5. If a brand logo is detected on a domain that does NOT belong to that brand, a `logo_domain_mismatch` critical signal is raised and the score is set to at least 85
+
+**Browser Singleton:** The Playwright Chromium instance is created once and reused across all scans. Only the browser context is recycled per scan, preventing resource leaks and reducing startup time.
+
+**Graceful Degradation:** If `DISABLE_TESTER_AGENT=true` is set (e.g., on hosting platforms without Playwright support), the agent returns a neutral score of 0 with confidence 0.1.
+
+---
+
+## Orchestrator and Scoring
+
+The orchestrator (`orchestrator.ts`) is the central coordinator that runs all agents, applies veto logic, and produces the final verdict.
+
+### Parallel Execution Pipeline
 
 ```
-finalScore = Sum(agentScore * agentWeight * agentConfidence) / Sum(agentWeight * agentConfidence)
+                        ┌──────────────────────────┐
+                        │  URL Agent (immediate)    │──┐
+                        ├──────────────────────────┤  │
+                        │  Domain Agent (immediate) │──┤
+                        ├──────────────────────────┤  │
+                        │  Tester Agent (browser)   │──┤── Promise.allSettled()
+                        ├──────────────────────────┤  │
+                        │  Content Agent (awaits    │──┤
+                        │  pageContent from Tester) │  │
+                        ├──────────────────────────┤  │
+                        │  Heuristic Agent (awaits  │──┘
+                        │  pageContent from Tester) │
+                        └──────────────────────────┘
+
+Early Exit: If URL + Domain both score < 10 → skip remaining 3 agents
 ```
 
-Domain and Content agents use `MAX(local, LLM)` instead of averaging for more aggressive detection.
+1. **URL Agent** and **Domain Agent** start immediately (no browser needed)
+2. **Tester Agent** starts the headless browser in parallel
+3. A deferred promise (`pageContentPromise`) is created
+4. **Content Agent** and **Heuristic Agent** await this promise, which resolves when Tester Agent completes and provides `pageContent`
+5. Once resolved, Content and Heuristic agents run their analysis in parallel
+6. All results are collected via `Promise.allSettled()` with a per-agent timeout of 45 seconds
 
-### Orchestrator Priority Cascade
+### Weighted Scoring Formula
 
-The orchestrator uses a multi-level decision system:
+```
+finalScore = Σ(agentScore × agentWeight × agentConfidence) / Σ(agentWeight × agentConfidence)
+```
+
+Where:
+- `agentScore` = the agent's risk score (0-100)
+- `agentWeight` = configured weight from `CONFIG.AGENT_WEIGHTS`
+- `agentConfidence` = the agent's confidence level (0-1)
+
+This confidence-weighted approach means high-confidence results have more influence on the final score than low-confidence ones.
+
+### Critical Veto System
+
+The following signal types trigger an **immediate block** (score >= 85) regardless of the overall weighted average:
+
+| Veto Signal | Source Agent(s) | Description |
+|-------------|-----------------|-------------|
+| `blocklist_match` | Domain | Domain on known phishing blocklist |
+| `known_phishing_domain` | Domain | Domain identified as known phishing |
+| `typosquatting` | URL | Domain mimics a known brand (e.g., `paypa1.com`) |
+| `homograph` | URL | Unicode lookalike characters in domain (e.g., Cyrillic "а" in "pаypal") |
+| `download_attempted` | Tester | Automatic file download triggered on page load |
+| `safety_warning` | Tester | Browser Safe Browsing warning detected |
+| `logo_domain_mismatch` | Tester | Vision-detected brand logo on non-brand domain |
+| `cross_origin_password_form` | Tester | Password form submitting to a different domain |
+| `cross_origin_credential_form` | Tester | Credential form submitting to a different domain |
+
+### Priority Cascade Decision Logic
+
+The orchestrator uses a 5-layer priority cascade to determine the final verdict:
 
 | Priority | Condition | Result |
 |----------|-----------|--------|
-| 0 | Safe domain whitelist match | Instant ALLOW |
-| 1 | Critical veto signal detected | Instant BLOCK (score >= 85) |
-| 2 | Any single agent score >= 75 | BLOCK |
-| 3 | 2+ agents score > 50 | Consensus BLOCK |
-| 4 | Weighted average | allow <= 25, warn 26-55, block >= 56 |
-| 5 | High-severity signals present | Bumps "allow" to "warn" |
+| **0** | URL domain matches the safe domains whitelist (150+ domains) | **Instant ALLOW** (score 0, confidence 0.99) |
+| **1** | Any agent reports a critical veto signal (from the list above) | **Instant BLOCK** (score >= 85) |
+| **2** | Single agent conviction: any agent scores >= 85 | **BLOCK** |
+| **3** | Consensus block: 2+ agents score > 70 | **BLOCK** (average of suspicious agents, minimum 65) |
+| **4** | Weighted average calculation with standard thresholds | `allow` (<= 45), `warn` (46-79), `block` (>= 80) |
 
-### Critical Veto Signals
+**Bump Rule:** If the weighted average produces an "allow" action but there are 3+ high-severity signals OR any critical-severity signal present, the verdict is bumped from "allow" to "warn".
 
-The following signals trigger an immediate block regardless of overall score:
+---
 
-- `blocklist_match` - Domain on known phishing blocklist
-- `brand_impersonation` - Brand name used deceptively
-- `typosquatting` - Domain mimics a known brand
-- `homograph` - Unicode lookalike characters in domain
-- `ip_address` - IP address used instead of domain
-- `external_form_action` - Login form submits to external domain
-- `title_brand_mismatch` - Page title/brand does not match domain
-- `logo_domain_mismatch` - Vision-detected brand logo on wrong domain
-- `cross_origin_password_form` - Password submitted to different domain
-- `safety_warning` - Browser safety warning detected
-- And more...
+## Dual-Model Consensus Engine
 
-## Detection Signals
+The dual-model consensus engine is implemented in `BaseAgent.dualModelAnalyze()` and is used by every agent:
 
-### URL Agent
-- Excessive URL length
-- IP address instead of domain
-- Multiple subdomains
-- Suspicious TLDs (.tk, .xyz, .ml, etc.)
-- URL shorteners (bit.ly, tinyurl.com, etc.)
-- Typosquatting patterns
-- Homograph attacks (Unicode lookalikes)
-- Encoded characters
-- Phishing keywords in path
+```
+                    ┌─────────────────┐
+                    │  Analysis Data  │
+                    │  (truncated)    │
+                    └────────┬────────┘
+                             │
+                    ┌────────┴────────┐
+                    │  Promise.all()  │
+                    ├─────────────────┤
+              ┌─────┴─────┐   ┌──────┴──────┐
+              │   Groq    │   │   Gemini    │
+              │ Llama 3.3 │   │ 2.0 Flash   │
+              │   70B     │   │             │
+              └─────┬─────┘   └──────┬──────┘
+                    │                │
+                    └────────┬───────┘
+                             │
+                    ┌────────┴────────┐
+                    │  Consensus      │
+                    │  Computation    │
+                    └────────┬────────┘
+                             │
+             ┌───────────────┼───────────────┐
+             │               │               │
+         Both Agree     Disagree        One/Both Fail
+         (diff <= 15)   (diff > 15)
+             │               │               │
+    Confidence-weighted  Configurable    Fallback to
+    average score        strategy         working model
+```
 
-### Domain Agent
-- Known phishing blocklist match
-- Brand name in subdomain
-- Random-looking domain names (DGA detection)
-- Suspicious patterns (-login, -secure)
-- Excessive hyphens
-- Suspicious hosting platforms (weebly, wix, netlify, etc.)
-- Brand impersonation with improved false-positive filtering
+**Consensus Computation Details:**
 
-### Content Agent
-- Login forms submitting to external domains
-- Brand name mismatch (page title vs URL domain)
-- Sensitive data requests
-- Mismatched link text
-- Form hijacking detection
-- Hidden element detection
+1. **Agreement** (score difference <= 15 points):
+   - Uses confidence-weighted average: `consensusScore = (groqScore * groqConf + geminiScore * geminiConf) / (groqConf + geminiConf)`
+   - Strategy: `consensus-average`
+   - Confidence is boosted since both models agree
 
-### Heuristic Agent
-- Urgency language ("Act now!", "24 hours")
-- Threat language ("suspended", "locked")
-- Reward scam patterns ("You've won!")
-- Poor grammar/spelling
-- Suspicious URL parameters
+2. **Disagreement** (score difference > 15 points):
+   - Applies the configured `DISAGREEMENT_STRATEGY`:
+     - `conservative`: takes the MAX (higher) score -- more cautious
+     - `average`: simple average of both scores
+     - `max`: takes the MAX score (same as conservative)
 
-### Tester Agent
-- Excessive redirects / cross-domain redirects
-- Popup dialogs (with proper listener cleanup)
-- Automatic download attempts
-- Browser permission requests
-- Safety warnings
-- Vision-based logo detection (Groq Vision model)
-- Redirect chain tracking
+3. **Signal Merging**: Signals from both models are deduplicated by `type:severity` key. Groq signals take priority as the primary model.
+
+4. **Explanation Merging**: If agreed, uses Groq's explanation. If disagreed, shows both: `[Groq: X/100] explanation | [Gemini: Y/100] explanation`.
+
+---
+
+## Detection Signals Reference
+
+### Signal Severity Levels
+
+| Severity | Color | Impact |
+|----------|-------|--------|
+| `critical` | Red/Purple | Can trigger immediate veto block |
+| `high` | Orange | Significant risk contributor |
+| `medium` | Yellow/Amber | Moderate risk indicator |
+| `low` | Green | Minor indicator, rarely decisive alone |
+
+### Signal Structure
+
+```typescript
+interface Signal {
+  type: string;        // e.g., "typosquatting", "brand_impersonation"
+  severity: "low" | "medium" | "high" | "critical";
+  value: string | number | boolean;
+  description: string; // Human-readable explanation
+}
+```
+
+### Complete Signal Catalog
+
+**URL Agent Signals:** `ip_address`, `suspicious_tld`, `url_shortener`, `encoded_characters`, `homograph`, `phishing_keywords`, `typosquatting`, `no_https`, `non_standard_port`, `excessive_length`, `deep_subdomains`, `special_characters`
+
+**Domain Agent Signals:** `blocklist_match`, `known_phishing_domain`, `brand_impersonation`, `brand_in_subdomain`, `suspicious_hosting`, `suspicious_tld`, `dga_detected`, `suspicious_patterns`, `excessive_hostname_length`, `multiple_hyphens`
+
+**Content Agent Signals:** `external_form_action`, `title_brand_mismatch`, `sensitive_data_request`, `urgency_language`, `mismatched_brand_links`, `captcha_detected`, `empty_page`, `login_form_detected`
+
+**Heuristic Agent Signals:** `urgency_language`, `threat_language`, `sensitive_data_request`, `reward_scam`, `manipulative_title`, `poor_grammar`, `suspicious_url_params`, `base64_data`, `urgency_in_url`
+
+**Tester Agent Signals:** `cross_origin_password_form`, `cross_origin_credential_form`, `safety_warning`, `download_attempted`, `excessive_redirects`, `cross_domain_redirect`, `permission_requests`, `popups_detected`, `overlays_detected`, `slow_load`, `logo_domain_mismatch`
+
+---
+
+## Web Dashboard
+
+### Technology Stack
+
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| Next.js | 14.2 | React framework with App Router |
+| React | 18.3 | UI library |
+| TailwindCSS | 3.4 | Utility-first CSS framework |
+| Framer Motion | 11.11 | Animation library |
+| Lucide React | 0.453 | Icon library |
+| TypeScript | 5.6 | Type safety |
+
+### Components
+
+| Component | Purpose | Key Features |
+|-----------|---------|--------------|
+| `ScanningInterface` | URL input and scan trigger | URL validation (auto-prepends `https://`), quick-test buttons for safe/suspicious/phishing URLs, gradient shield icon with pulse animation |
+| `StatusFeed` | Real-time agent activity logs | Terminal-styled dark theme, auto-scroll, macOS traffic lights, color-coded log levels (`[INFO]` cyan, `[WARN]` amber, `[ERR!]` red, `[DONE]` green), blinking cursor |
+| `ResultCard` | Final verdict display | SVG circular gauge (animated), color-coded verdict banner (SAFE/SUSPICIOUS/DANGEROUS), critical signal badges, screenshot preview (with red tint for blocks), timestamp and confidence metadata |
+| `AgentBreakdown` | Per-agent detail view | Expandable accordion, agent icons (Link/Globe/FileText/Brain/TestTube), animated risk score bars, signal cards with severity icons, confidence percentage |
+
+### Design System
+
+- **Theme:** Cream/warm background with glassmorphism cards
+- **Colors:** Safe (emerald green), Warning (amber), Danger (red)
+- **Custom CSS:** Glassmorphism (`glass` class with backdrop-blur), gradient text, custom scrollbar, pulse-glow animations, terminal dark mode
+- **Responsive:** Mobile-first with adjusted layouts for terminal feed, agent breakdowns, and signal displays
+
+### SSE Streaming API Client
+
+The dashboard uses a custom fetch-based SSE client (not native `EventSource`) with:
+- Manual line-by-line SSE parsing
+- `AbortController` for cancellation
+- Automatic retry (up to 2 retries with 1.5s delay) for network errors
+- Production URL auto-detection (falls back to `https://phishguard-api.onrender.com` when not on localhost)
+
+---
 
 ## Chrome Extension
 
-The browser extension provides passive real-time protection by intercepting navigation events and scanning URLs through the backend API.
+### Architecture
 
-### Build Extension
+The extension operates in **API mode** -- all AI analysis is delegated to the backend server. No LLM calls are made from the browser.
 
-```bash
-npm install
-npm run build
+```
+┌─────────────┐     chrome.runtime      ┌──────────────────┐     HTTP POST      ┌──────────────┐
+│  Content     │ ◄──────────────────────► │  Service Worker   │ ─────────────────► │  Backend API │
+│  Script      │   PAGE_CONTENT           │  (background)     │                    │  :3001       │
+│              │   SHOW_WARNING            │                   │ ◄─────────────────  │              │
+│              │   USER_OVERRIDE           │                   │   JSON Response    │              │
+│              │   GET_STATUS              │                   │                    │              │
+└─────────────┘                           └──────────────────┘                    └──────────────┘
+                                                 ▲
+                                                 │ chrome.runtime
+                                                 │ GET_STATUS
+                                          ┌──────┴───────┐
+                                          │  Popup UI    │
+                                          └──────────────┘
 ```
 
-### Load in Chrome
+### Manifest V3 Configuration
 
-1. Go to `chrome://extensions/`
-2. Enable "Developer mode"
-3. Click "Load unpacked"
-4. Select the `dist` folder
+```json
+{
+  "manifest_version": 3,
+  "permissions": ["storage", "tabs", "webNavigation", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background/service-worker.js", "type": "module" },
+  "content_scripts": [{ "matches": ["<all_urls>"], "run_at": "document_start" }]
+}
+```
 
-### Extension Features
+### Navigation Interception Flow
 
-- Automatic scanning of every page navigation
-- Fullscreen warning overlay for phishing pages
-- Risk score ring with agent breakdown in popup
-- Scan history tracking
-- Per-domain whitelist
-- Report phishing functionality
+Every main-frame navigation goes through this decision pipeline:
+
+1. **Internal URL filter** -- Skip `chrome://`, `chrome-extension://`, `about:` URLs
+2. **Settings check** -- If extension is disabled, skip
+3. **Whitelist check** -- If domain (or parent domain) is whitelisted, skip
+4. **Safe domain check** -- If domain matches the 150+ trusted domains list, show green badge instantly (no API call)
+5. **API analysis** -- Send URL to backend (non-blocking, navigation proceeds)
+6. **Post-analysis** -- Store result, update badge, notify content script if dangerous
+
+### Warning Overlay
+
+For `warn` and `block` verdicts, the content script injects a fullscreen overlay:
+
+- **z-index:** 2147483647 (maximum possible)
+- **Block verdict:** Red glow, "CRITICAL RISK" badge, "This site may steal your data"
+- **Warn verdict:** Amber glow, "WARNING RISK" badge, "This site looks suspicious"
+- **Content:** Blocked URL display, analysis summary, agent breakdown with color-coded risk pills
+- **Actions:** "Go Back to Safety" (primary), "View Details" (toggleable), "Proceed anyway (unsafe)"
+- **Security:** All user-facing text is XSS-escaped via `escapeHtml()` to prevent injection from malicious URLs
+
+### Popup UI Features
+
+- **Risk Score Ring:** SVG circular progress indicator with animated `strokeDasharray`
+- **Agent Cards:** Grid of agent results with emoji icons and color-coded score pills
+- **Signal List:** First 8 detected signals with severity-colored dots
+- **Quick Actions:** Trust Site (adds to whitelist), Report (feedback), History (recent scans)
+- **History Panel:** Last 10 scans with relative timestamps, domain names, and color-coded scores
+- **Toggle Switch:** Enable/disable the extension
+
+### Chrome Storage
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `settings` | `Settings` | Enabled toggle, thresholds, notification preferences |
+| `whitelist` | `string[]` | Trusted domain list (supports subdomain matching) |
+| `analysisHistory` | `AnalysisHistoryEntry[]` | Last ~100 scan records |
+| `apiKey` | `string` | Optional Groq API key (not used at runtime) |
+
+### Build System
+
+The extension is built with **Vite** using three entry points:
+
+```typescript
+// vite.config.ts
+input: {
+  "background/service-worker": "src/background/service-worker.ts",
+  "content/content-script": "src/content/content-script.ts",
+  "ui/popup/popup": "src/ui/popup/popup.ts",
+}
+```
+
+A post-build script (`scripts/copy-assets.js`) copies `manifest.json`, `assets/` (icons), and `popup.html`/`popup.css` to the `dist/` folder.
+
+---
 
 ## Configuration
 
 ### Agent Weights
 
-Edit `server/src/config/index.ts`:
+Configured in `server/src/config/index.ts`:
 
 ```typescript
 AGENT_WEIGHTS: {
-  urlAgent: 0.20,       // 20%
-  domainAgent: 0.30,    // 30% - Domain reputation is critical
-  contentAgent: 0.25,   // 25%
-  heuristicAgent: 0.15, // 15%
-  testerAgent: 0.10,    // 10%
+  urlAgent: 0.20,       // 20% - URL structure analysis
+  domainAgent: 0.30,    // 30% - Domain reputation (most critical)
+  contentAgent: 0.25,   // 25% - Page content analysis
+  heuristicAgent: 0.15, // 15% - Social engineering patterns
+  testerAgent: 0.10,    // 10% - Browser behavioral testing
 }
 ```
 
 ### Risk Thresholds
 
+**Server-side** (used by orchestrator for final verdict):
+
 ```typescript
 THRESHOLDS: {
-  ALLOW_MAX: 25,   // 0-25: Safe
-  WARN_MAX: 55,    // 26-55: Suspicious
-  BLOCK_MIN: 56,   // 56-100: Dangerous
+  ALLOW_MAX: 45,   // 0-45: Safe (allow)
+  WARN_MAX: 79,    // 46-79: Suspicious (warn)
+  BLOCK_MIN: 80,   // 80-100: Dangerous (block)
+}
+```
+
+**Extension-side** (used for badge/overlay display):
+
+```typescript
+THRESHOLDS: {
+  ALLOW_MAX: 30,   // 0-30: Safe
+  WARN_MAX: 70,    // 31-70: Suspicious
+  BLOCK_MIN: 71,   // 71-100: Dangerous
 }
 ```
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `GROQ_API_KEY` | Groq API key (required) | - |
-| `GEMINI_API_KEY` | Google Gemini API key (enables dual-model) | - |
-| `DUAL_MODEL_ENABLED` | Enable dual-model cross-verification | `false` |
-| `PORT` | Backend server port | `3001` |
-| `DISABLE_TESTER_AGENT` | Disable Playwright-based tester agent | `false` |
-| `DISABLE_VISION_DETECTION` | Disable vision-based logo detection | `false` |
-| `NEXT_PUBLIC_API_URL` | Dashboard API base URL | `http://localhost:3001` |
-| `NODE_ENV` | Environment (development/production) | `development` |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GROQ_API_KEY` | Yes | - | Groq API key for Llama 3.3 70B text + Llama 3.2 11B Vision |
+| `GEMINI_API_KEY` | No | - | Google Gemini API key (enables dual-model cross-verification) |
+| `DUAL_MODEL_ENABLED` | No | `true` | Enable/disable dual-model consensus |
+| `PORT` | No | `3001` | Backend server port |
+| `NODE_ENV` | No | `development` | Environment mode (`development` / `production`) |
+| `DISABLE_TESTER_AGENT` | No | `false` | Disable Playwright-based tester agent (for platforms without browser support) |
+| `DISABLE_VISION_DETECTION` | No | `false` | Disable vision-based logo detection |
+| `DASHBOARD_URL` | No | - | Dashboard URL for CORS (production) |
+| `NEXT_PUBLIC_API_URL` | No | `http://localhost:3001` | Dashboard's API base URL |
+
+### Safe Domains Whitelist
+
+Over **150 trusted domains** across categories that receive instant "allow" verdicts (no API/LLM calls):
+
+- **Search/Tech:** google.com, microsoft.com, apple.com, github.com, gitlab.com, stackoverflow.com
+- **Social Media:** facebook.com, twitter.com, x.com, reddit.com, linkedin.com, instagram.com
+- **Video/Streaming:** youtube.com, netflix.com, spotify.com, twitch.tv, hulu.com
+- **E-Commerce:** amazon.com, amazon.in, flipkart.com, ebay.com, walmart.com, shopify.com
+- **Payments:** paypal.com, stripe.com, razorpay.com
+- **News:** bbc.com, cnn.com, nytimes.com, reuters.com, theguardian.com
+- **Banking:** chase.com, wellsfargo.com, bankofamerica.com, hdfc.com, sbi.co.in
+- **Cloud/Dev:** aws.amazon.com, cloud.google.com, vercel.com, netlify.com, heroku.com
+- **Education:** wikipedia.org, coursera.org, edx.org, khanacademy.org
+- **Government/Shipping:** usps.com, fedex.com, ups.com, dhl.com
+- And many more...
+
+### Blocklist Domains
+
+Domains that receive instant "block" verdicts (score 95, critical severity):
+
+```
+duckdns.org, ddns.net, no-ip.org, hopto.org, zapto.org,
+sytes.net, serveblog.net, serveftp.com, 000webhostapp.com
+```
+
+### Protected Brands
+
+27 brands with full impersonation detection:
+
+| Brand | Official Domain | Min Length for Detection |
+|-------|----------------|------------------------|
+| PayPal | paypal.com | 6 |
+| Amazon | amazon.com | 6 |
+| Apple | apple.com | 5 |
+| Microsoft | microsoft.com | 9 |
+| Google | google.com | 6 |
+| Facebook | facebook.com | 8 |
+| Netflix | netflix.com | 7 |
+| Instagram | instagram.com | 9 |
+| Chase | chase.com | 5 |
+| Wells Fargo | wellsfargo.com | 10 |
+| USPS | usps.com | 4 |
+| FedEx | fedex.com | 5 |
+| UPS | ups.com | 3 |
+| DHL | dhl.com | 3 |
+| Walmart | walmart.com | 7 |
+| eBay | ebay.com | 4 |
+| Dropbox | dropbox.com | 7 |
+| Coinbase | coinbase.com | 8 |
+| Binance | binance.com | 7 |
+| And more... | | |
+
+**Short Brand Protection:** Brands with <= 3 characters (UPS, DHL) use exact segment matching instead of substring matching to prevent false positives (e.g., "setup.com" won't match "ups").
+
+---
 
 ## Deployment
 
-### Render.com (One-Click)
+### Render.com One-Click Deploy
 
-The project includes a `render.yaml` blueprint for deploying both the API server and web dashboard to [Render.com](https://render.com):
+The project includes a `render.yaml` blueprint for deploying both services to [Render.com](https://render.com):
 
 1. Fork/push this repository to GitHub
 2. Go to [Render Dashboard](https://dashboard.render.com) > **Blueprints**
@@ -444,49 +1060,204 @@ The project includes a `render.yaml` blueprint for deploying both the API server
    - `DUAL_MODEL_ENABLED` (set to `true` if using Gemini)
 5. Deploy
 
-The blueprint deploys:
-- **phishguard-api**: Backend API server (tester agent disabled by default on free tier)
-- **phishguard-dashboard**: Next.js web dashboard (auto-connects to API)
+The blueprint deploys two services:
 
-> **Note**: The tester agent (Playwright) is disabled by default on Render's free tier since it requires a headless browser environment. Set `DISABLE_TESTER_AGENT=false` if your plan supports it.
+**phishguard-api** (Backend):
+- Runtime: Node.js
+- Region: Oregon
+- Plan: Free
+- Build: `npm install --include=dev && npm run build`
+- Start: `npm start`
+- Tester agent disabled by default (`DISABLE_TESTER_AGENT=true`)
+- Port: 10000
+
+**phishguard-dashboard** (Frontend):
+- Runtime: Node.js
+- Region: Oregon
+- Plan: Free
+- Build: `npm install --include=dev && npm run build`
+- Start: `npm start`
+- Auto-connects to API via `NEXT_PUBLIC_API_URL`
+- Standalone output mode for efficient deployment
+
+> **Note**: The Tester Agent (Playwright) is disabled by default on Render's free tier since it requires a headless browser environment with Chromium binaries. Set `DISABLE_TESTER_AGENT=false` if your plan supports it.
+
+---
 
 ## Technologies
 
-| Component | Stack |
-|-----------|-------|
-| **Backend** | Node.js, Express, TypeScript, Playwright, Zod, Helmet |
-| **AI/LLM** | Groq API (Llama 3.3 70B text + Llama 3.2 11B Vision), Google Gemini API (Gemini 2.0 Flash) |
-| **Dashboard** | Next.js 14, React 18, TailwindCSS, Framer Motion, Lucide React |
-| **Extension** | Chrome Extension Manifest V3, Vite, TypeScript |
-| **Performance** | LRU caching, token bucket rate limiting, parallel execution |
-| **Deployment** | Render.com |
+| Component | Stack | Details |
+|-----------|-------|---------|
+| **Backend API** | Node.js, Express, TypeScript | REST + SSE endpoints, Zod validation, Helmet security headers |
+| **Browser Automation** | Playwright (Chromium) | Headless browser for content extraction, form analysis, screenshot capture |
+| **AI/LLM (Primary)** | Groq API | Llama 3.3 70B Versatile (text), Llama 3.2 11B Vision Preview (logo detection) |
+| **AI/LLM (Secondary)** | Google Gemini API | Gemini 2.0 Flash (cross-verification) |
+| **Web Dashboard** | Next.js 14, React 18, TailwindCSS | App Router, SSE streaming, Framer Motion animations, Lucide icons |
+| **Chrome Extension** | Manifest V3, Vite, TypeScript | Service worker, content script, popup UI |
+| **Performance** | Custom implementations | LRU cache with TTL, token bucket rate limiter, payload truncation |
+| **Security** | Helmet, express-rate-limit, Zod, CORS | Input validation, rate limiting, security headers, XSS prevention |
+| **Deployment** | Render.com | Blueprint YAML for one-click deployment |
 
-## Security Notes
+---
 
-- API keys must be stored in environment variables -- never commit them to source control
-- The backend acts as a secure proxy for all LLM API calls
-- Never expose API keys in frontend or extension code
-- The extension communicates with the local backend server; no API keys are embedded
-- Rate limiting (30 req/min per IP) and Helmet security headers are enabled on the API server
-- LLM rate limiting prevents API quota exhaustion (Groq 28/min, Gemini 14/min)
-- Input validation with Zod on all API endpoints
+## API Response Types
+
+### ScanResponse
+
+```typescript
+interface ScanResponse {
+  success: boolean;
+  verdict?: FinalVerdict;
+  error?: string;
+  logs: AgentLog[];
+}
+```
+
+### FinalVerdict
+
+```typescript
+interface FinalVerdict {
+  action: "allow" | "warn" | "block";
+  overallRiskScore: number;        // 0-100
+  confidence: number;              // 0.0-1.0
+  agentResults: AgentResult[];
+  summary: string;
+  url: string;
+  timestamp: number;               // epoch milliseconds
+  screenshot?: string;             // base64 JPEG
+  modelComparison?: ModelComparison;
+}
+```
+
+### AgentResult
+
+```typescript
+interface AgentResult {
+  agentId: string;
+  agentName: string;
+  riskScore: number;               // 0-100
+  confidence: number;              // 0.0-1.0
+  signals: Signal[];
+  explanation: string;
+  executionTimeMs: number;
+}
+```
+
+### Signal
+
+```typescript
+interface Signal {
+  type: string;
+  severity: "low" | "medium" | "high" | "critical";
+  value: string | number | boolean;
+  description: string;
+}
+```
+
+### AgentLog
+
+```typescript
+interface AgentLog {
+  agentId: string;
+  agentName: string;
+  message: string;
+  timestamp: number;
+  type: "info" | "warning" | "error" | "success";
+}
+```
+
+### ModelComparison
+
+```typescript
+interface ModelComparison {
+  groqResult?: LLMAnalysisResult;
+  geminiResult?: LLMAnalysisResult;
+  consensusScore: number;
+  scoreDifference: number;
+  strategy: string;                // "consensus-average", "conservative", "single-model-fallback"
+  agreed: boolean;
+}
+```
+
+### BrowserTestResult
+
+```typescript
+interface BrowserTestResult {
+  screenshot: string;              // base64 JPEG
+  finalUrl: string;
+  redirectChain: string[];
+  hasPopups: boolean;
+  hasOverlays: boolean;
+  downloadAttempted: boolean;
+  permissionRequests: string[];
+  consoleErrors: string[];
+  networkErrors: string[];
+  loadTimeMs: number;
+  safetyWarning?: string;
+  formAnalysis: FormAnalysis[];
+  logoDetection?: LogoDetectionResult;
+  pageContent?: PageContent;
+}
+```
+
+---
+
+## Security Considerations
+
+1. **API Key Protection**: All API keys are stored in environment variables and never committed to source control. The `.env` file is in `.gitignore`.
+2. **Backend Proxy**: The backend acts as a secure proxy for all LLM API calls. No API keys are exposed to the frontend or extension.
+3. **Rate Limiting**: Express rate limiter at 30 req/min per IP prevents API abuse. LLM rate limiters (Groq 28/min, Gemini 14/min) prevent quota exhaustion.
+4. **Input Validation**: All API endpoints validate input with Zod schemas. URLs are validated and capped at 2,048 characters.
+5. **Security Headers**: Helmet middleware sets secure HTTP headers (CSP, HSTS, X-Frame-Options, etc.).
+6. **CORS**: Configured to allow only specific origins (localhost, extension, dashboard, Render domains). Non-production mode allows all origins.
+7. **XSS Prevention**: The Chrome extension escapes all user-facing text (URLs, summaries, agent names) via `escapeHtml()` before rendering in the warning overlay.
+8. **Content Truncation**: LLM payloads are truncated to prevent injection of excessively large content into prompts.
+9. **Graceful Shutdown**: The server handles `SIGTERM`/`SIGINT` signals, properly closing the HTTP server and Playwright browser instances with a 10-second force-exit timeout.
+10. **Extension Fail-Open**: If the backend is unreachable, the extension fails open (allows navigation) rather than blocking all browsing.
+
+---
 
 ## Known Limitations
 
-- Requires internet connectivity for LLM analysis (no offline mode)
-- Some sites may block headless browser access (affects Content and Tester agents)
-- Screenshot capture may fail on some protected pages
-- Tester agent requires Playwright browser binaries (not available on all hosting platforms)
-- Vision-based logo detection depends on Groq Vision model availability
-- Dual-model consensus requires both Groq and Gemini API keys for full functionality
+1. **Requires Internet Connectivity**: LLM analysis requires internet access to reach Groq and Gemini APIs. There is no offline analysis mode.
+2. **Headless Browser Detection**: Some websites detect and block headless browsers (Playwright), which affects the Content and Tester agents. This results in lower confidence scores, not false blocks.
+3. **Screenshot Failures**: Protected pages (banking, some corporate sites) may prevent screenshot capture.
+4. **Playwright Hosting Requirements**: The Tester Agent requires Playwright Chromium binaries, which are not available on all hosting platforms (disabled by default on Render free tier).
+5. **Vision Model Availability**: Vision-based logo detection depends on Groq's Llama 3.2 11B Vision model availability.
+6. **Dual-Model Dependency**: Full dual-model consensus requires both Groq and Gemini API keys. With only Groq, the system still works but with single-model analysis.
+7. **False Positives on Hosting Platforms**: Sites hosted on platforms like Weebly, Wix, or Google Sites may receive elevated risk scores due to hosting platform signals.
+8. **API Rate Limits**: Free tier API limits (Groq 30 RPM, Gemini 15 RPM) may cause delays under heavy concurrent usage.
+9. **Extension Backend Dependency**: The Chrome extension requires the backend API server to be running. Without it, all sites receive a "safe" fallback verdict.
+10. **Cache Staleness**: Cached results (30-minute TTL) may not reflect changes to a website's content after the initial scan.
 
-## License
-
-MIT License - Feel free to use and modify.
+---
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Commit your changes
-4. Submit a pull request
+3. Make your changes
+4. Run the backend tests: `cd server && npm test`
+5. Build the extension: `npm run build`
+6. Build the dashboard: `cd web-dashboard && npm run build`
+7. Commit your changes with a descriptive message
+8. Submit a pull request
+
+### Development Setup
+
+```bash
+# Terminal 1: Backend API (with hot reload)
+cd server && npm run dev
+
+# Terminal 2: Web Dashboard (with hot reload)
+cd web-dashboard && npm run dev
+
+# Terminal 3: Extension (with watch mode)
+npm run dev
+```
+
+---
+
+## License
+
+MIT License - Feel free to use, modify, and distribute.
