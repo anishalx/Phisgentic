@@ -44,3 +44,15 @@ export interface ScanResponse {
 }
 
 export type ScanStatus = "idle" | "scanning" | "complete" | "error";
+
+export interface SandboxResult {
+  screenshot: string;
+  url: string;
+  finalUrl: string;
+  title: string;
+  redirectChain: string[];
+  loadTimeMs: number;
+  formCount: number;
+  linkCount: number;
+  timestamp: number;
+}

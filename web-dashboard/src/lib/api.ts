@@ -1,6 +1,6 @@
 // API client for the PhishGuard backend
 
-import type { ScanResponse, AgentLog, FinalVerdict } from "@/types";
+import type { ScanResponse, AgentLog, FinalVerdict, SandboxResult } from "@/types";
 
 /**
  * Resolves the API base URL at runtime.
@@ -175,6 +175,28 @@ export function scanUrlWithStream(
     done = true;
     abortController.abort();
   };
+}
+
+export async function openSandbox(url: string): Promise<SandboxResult> {
+  const response = await fetch(`${API_BASE}/api/sandbox`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ url }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Sandbox request failed" }));
+    throw new Error(error.error || "Failed to open sandbox preview");
+  }
+
+  const data = await response.json();
+  if (!data.success) {
+    throw new Error(data.error || "Sandbox capture failed");
+  }
+
+  return data.sandbox as SandboxResult;
 }
 
 export async function checkHealth(): Promise<boolean> {
