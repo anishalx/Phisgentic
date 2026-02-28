@@ -232,7 +232,7 @@ app.get("/api/scan/stream", async (req: Request, res: Response) => {
 });
 
 // Start server
-const server = app.listen(CONFIG.PORT, () => {
+const server = app.listen(CONFIG.PORT, "0.0.0.0", () => {
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
