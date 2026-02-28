@@ -19,7 +19,7 @@ function getApiBase(): string {
     const hostname = window.location.hostname;
     // If not localhost, we're in production — use the Render API URL
     if (hostname !== "localhost" && hostname !== "127.0.0.1") {
-      return "https://phishguard-api.onrender.com";
+      return "https://phishguard-api-m35d.onrender.com";
     }
   }
 
