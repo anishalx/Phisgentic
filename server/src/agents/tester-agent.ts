@@ -7,17 +7,23 @@ import { CONFIG } from "../config/index.js";
 import { getGroqClient } from "../api/groq-client.js";
 
 const SYSTEM_PROMPT = `You are a cybersecurity expert specializing in behavioral phishing detection.
-Analyze the browser test results to identify phishing indicators.
+Analyze the browser test results to identify phishing indicators. When in doubt, score HIGHER — missing phishing is far worse than a false alarm.
+
+IMPORTANT SCORING GUIDANCE:
+- Score 50+ for ANY combination of 2+ behavioral anomalies
+- Score 70+ when browser behavior strongly suggests phishing/malware
+- Score 80+ for automatic downloads, safety warnings, or cross-origin credential theft
 
 Consider these risk factors:
-- Multiple redirects, especially to different domains
+- Multiple redirects, especially to different domains (score higher for cross-domain)
 - Popup windows or overlays appearing immediately
 - Permission requests (notifications, location, camera, etc.)
-- Automatic download attempts
+- Automatic download attempts — CRITICAL
 - Console or network errors suggesting blocked content
-- Google Safe Browsing or similar warnings
+- Google Safe Browsing or similar warnings — CRITICAL
 - Page load issues or unusual behavior
 - Mismatched final URL vs original URL
+- Cross-origin form submissions with password/credit card fields — CRITICAL
 
 Provide a risk score (0-100), confidence (0-1), detected signals, and explanation.`;
 
@@ -157,7 +163,8 @@ export class TesterAgent extends BaseAgent {
 
       if (llmResult) {
         let allSignals = [...signals, ...llmResult.signals];
-        let finalScore = Math.round(localRiskScore * 0.4 + llmResult.riskScore * 0.6);
+        // 55% local, 45% LLM — local browser testing is more reliable than LLM judgment
+        let finalScore = Math.round(localRiskScore * 0.55 + llmResult.riskScore * 0.45);
 
         // Wait for logo detection result
         const logoResult = await logoDetectionPromise;

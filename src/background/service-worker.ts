@@ -273,14 +273,15 @@ function mapRiskToAction(riskScore: number): "allow" | "warn" | "block" {
 
 /**
  * Create a fallback verdict when API is unavailable
+ * Security-first: warn the user instead of silently allowing
  */
 function createFallbackVerdict(url: string, reason: string): FinalVerdict {
   return {
     url,
-    overallRiskScore: 0,
+    overallRiskScore: 50,
     confidence: 0,
-    action: "allow",
-    summary: `Could not analyze: ${reason}. Proceeding with caution.`,
+    action: "warn",
+    summary: `Could not verify safety: ${reason}. Treat with caution.`,
     agentResults: [],
     timestamp: Date.now(),
   };

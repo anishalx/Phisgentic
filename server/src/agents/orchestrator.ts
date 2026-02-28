@@ -7,6 +7,7 @@ import { HeuristicAgent } from "./heuristic-agent.js";
 import { TesterAgent } from "./tester-agent.js";
 import type { AgentResult, PageContent, FinalVerdict, AgentLog, Signal } from "../types/index.js";
 import { CONFIG } from "../config/index.js";
+import { getSafeBrowsingClient } from "../api/safe-browsing-client.js";
 import type { Page } from "playwright";
 
 export interface OrchestratorResult {
@@ -65,6 +66,32 @@ export class Orchestrator {
     addLog("contentAgent", "Content Analyzer", "Scanning page content for threats...", "info");
     addLog("heuristicAgent", "Behavior Detector", "Detecting social engineering patterns...", "info");
 
+    // Google Safe Browsing check — runs in parallel with URL+Domain agents
+    // If configured, this provides an external threat intelligence signal
+    const safeBrowsingClient = getSafeBrowsingClient();
+    let safeBrowsingVeto = false;
+    let safeBrowsingDescription = "";
+    const safeBrowsingPromise = safeBrowsingClient.isAvailable()
+      ? safeBrowsingClient.checkUrl(url).then((result) => {
+          if (result.isUnsafe) {
+            safeBrowsingVeto = true;
+            safeBrowsingDescription = result.description;
+            addLog("orchestrator", "Orchestrator",
+              `Google Safe Browsing ALERT: ${result.description}`, "warning");
+          } else if (result.description.includes("not configured")) {
+            addLog("orchestrator", "Orchestrator",
+              "Google Safe Browsing not configured — skipped", "info");
+          } else {
+            addLog("orchestrator", "Orchestrator",
+              `Google Safe Browsing: URL not in threat database (${result.latencyMs}ms)`, "success");
+          }
+          return result;
+        }).catch((error) => {
+          console.error("[Orchestrator] Safe Browsing check failed:", error);
+          return null;
+        })
+      : Promise.resolve(null);
+
     // Create a deferred promise for pageContent so Content/Heuristic agents
     // can await it while URL/Domain agents run independently
     let resolvePageContent: (value: PageContent | undefined) => void;
@@ -99,8 +126,9 @@ export class Orchestrator {
     });
 
     // EARLY EXIT: Run URL + Domain agents first (they are fast, no browser needed).
-    // If both score very low (<10), the site is clearly safe — skip Content,
+    // If both score very low (<5), the site is clearly safe — skip Content,
     // Heuristic, and Tester agents entirely (saves 5-10 seconds).
+    // TIGHTENED: Threshold lowered from <10 to <5 to reduce false negatives.
     const [urlResult, domainResult] = await Promise.all([
       this.withTimeout(this.urlAgent.analyze(url), CONFIG.ANALYSIS.TIMEOUT_MS).catch(() => null),
       this.withTimeout(this.domainAgent.analyze(url), CONFIG.ANALYSIS.TIMEOUT_MS).catch(() => null),
@@ -124,29 +152,37 @@ export class Orchestrator {
       addLog("domainAgent", "Domain Intelligence", "Analysis failed or timed out", "error");
     }
 
-    const urlScore = urlResult?.riskScore ?? 15;
-    const domainScore = domainResult?.riskScore ?? 15;
+    const urlScore = urlResult?.riskScore ?? 40;
+    const domainScore = domainResult?.riskScore ?? 40;
 
-    if (urlScore < 10 && domainScore < 10) {
-      // Both fast agents agree: site looks safe. Skip heavy agents.
-      addLog("orchestrator", "Orchestrator", "Early exit: URL + Domain both low-risk, skipping remaining agents", "info");
-      // Cancel the tester if it's still running (we don't await it)
-      resolvePageContent!(undefined);
+    if (urlScore < 5 && domainScore < 5) {
+      // Both fast agents agree: site looks safe. But wait for Safe Browsing first.
+      await safeBrowsingPromise;
 
-      const earlyResults: AgentResult[] = [];
-      if (urlResult) earlyResults.push(urlResult);
-      if (domainResult) earlyResults.push(domainResult);
+      if (safeBrowsingVeto) {
+        // Google Safe Browsing flagged this URL — override early exit
+        addLog("orchestrator", "Orchestrator", "Early exit CANCELLED: Google Safe Browsing flagged this URL as unsafe", "warning");
+      } else {
+        // Safe Browsing also agrees it's safe. Skip heavy agents.
+        addLog("orchestrator", "Orchestrator", "Early exit: URL + Domain both very low-risk, skipping remaining agents", "info");
+        // Cancel the tester if it's still running (we don't await it)
+        resolvePageContent!(undefined);
 
-      const verdict = this.calculateVerdictWithVeto(url, earlyResults, undefined);
+        const earlyResults: AgentResult[] = [];
+        if (urlResult) earlyResults.push(urlResult);
+        if (domainResult) earlyResults.push(domainResult);
 
-      addLog(
-        "orchestrator",
-        "Orchestrator",
-        `Final verdict: ${verdict.action.toUpperCase()} (Score: ${verdict.overallRiskScore}/100) - ${Date.now() - startTime}ms [FAST]`,
-        "success",
-      );
+        const verdict = this.calculateVerdictWithVeto(url, earlyResults, undefined);
 
-      return { verdict, logs };
+        addLog(
+          "orchestrator",
+          "Orchestrator",
+          `Final verdict: ${verdict.action.toUpperCase()} (Score: ${verdict.overallRiskScore}/100) - ${Date.now() - startTime}ms [FAST]`,
+          "success",
+        );
+
+        return { verdict, logs };
+      }
     }
 
     // Full analysis: run remaining agents in parallel
@@ -188,6 +224,29 @@ export class Orchestrator {
       }
     }
 
+    // Wait for Safe Browsing result before final verdict
+    await safeBrowsingPromise;
+
+    // If Google Safe Browsing flagged this URL, inject a veto signal into results
+    if (safeBrowsingVeto) {
+      // Create a synthetic agent result for Safe Browsing
+      const safeBrowsingResult: AgentResult = {
+        agentId: "safeBrowsing",
+        agentName: "Google Safe Browsing",
+        riskScore: 95,
+        confidence: 0.99,
+        signals: [{
+          type: "known_phishing_domain",
+          severity: "critical",
+          value: url,
+          description: safeBrowsingDescription,
+        }],
+        explanation: safeBrowsingDescription,
+        executionTimeMs: 0,
+      };
+      agentResults.push(safeBrowsingResult);
+    }
+
     // Calculate final verdict using Critical Veto Logic
     const verdict = this.calculateVerdictWithVeto(url, agentResults, screenshot);
 
@@ -210,11 +269,28 @@ export class Orchestrator {
   }
 
   /**
-   * Check if URL belongs to a known safe domain
+   * Check if URL belongs to a known safe domain.
+   * IMPORTANT: Excludes subdomains commonly abused for phishing (sites.google.com, etc.)
    */
   private isSafeDomain(url: string): boolean {
     try {
       const hostname = new URL(url).hostname.toLowerCase();
+      const fullUrl = url.toLowerCase();
+
+      // CHECK EXCLUSIONS FIRST — these are subdomains of safe domains
+      // that are commonly abused for phishing (e.g., sites.google.com)
+      const exclusions = CONFIG.SAFE_DOMAIN_EXCLUSIONS as readonly string[];
+      for (const excluded of exclusions) {
+        if (hostname === excluded || hostname.endsWith(`.${excluded}`)) {
+          return false;
+        }
+        // Also check if the full URL starts with the excluded pattern
+        // (handles cases like docs.google.com/forms/...)
+        if (fullUrl.includes(excluded)) {
+          return false;
+        }
+      }
+
       return CONFIG.SAFE_DOMAINS.some(safe => 
         hostname === safe || hostname.endsWith(`.${safe}`)
       );
@@ -295,7 +371,7 @@ export class Orchestrator {
     const maxAgentScore = Math.max(...agentResults.map(r => r.riskScore));
     const maxScoreAgent = agentResults.find(r => r.riskScore === maxAgentScore);
     
-    if (maxAgentScore >= 85) {
+    if (maxAgentScore >= 75) {
       return {
         action: "block",
         overallRiskScore: maxAgentScore,
@@ -308,8 +384,8 @@ export class Orchestrator {
       };
     }
 
-    // VETO CHECK 3: Consensus block (multiple agents highly suspicious)
-    const suspiciousAgents = agentResults.filter(r => r.riskScore > 70);
+    // VETO CHECK 3: Consensus block (multiple agents suspicious)
+    const suspiciousAgents = agentResults.filter(r => r.riskScore > 55);
     if (suspiciousAgents.length >= 2) {
       const avgSuspiciousScore = Math.round(
         suspiciousAgents.reduce((sum, r) => sum + r.riskScore, 0) / suspiciousAgents.length
@@ -354,13 +430,12 @@ export class Orchestrator {
       action = "warn";
     }
 
-    // High severity signals bump "allow" to "warn" — but ONLY if there are
-    // multiple high signals OR at least one critical signal.
-    // A single "high" signal (e.g., a login form on a legitimate site) is not
-    // enough to override an otherwise-safe weighted score.
+    // High severity signals bump "allow" to "warn" — if there are
+    // 2+ high signals OR at least one critical signal.
+    // TIGHTENED: Lowered from 3 to 2 high signals to catch more threats.
     const highSignalCount = allSignals.filter(s => s.severity === "high").length;
     const hasCriticalSignal = allSignals.some(s => s.severity === "critical");
-    if ((highSignalCount >= 3 || hasCriticalSignal) && action === "allow") {
+    if ((highSignalCount >= 2 || hasCriticalSignal) && action === "allow") {
       action = "warn";
     }
 

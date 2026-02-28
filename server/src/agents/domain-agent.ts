@@ -6,27 +6,29 @@ import { CONFIG } from "../config/index.js";
 import { parseUrl } from "../utils/url-parser.js";
 
 const SYSTEM_PROMPT = `You are a cybersecurity analyst specializing in domain threat intelligence.
-Analyze the provided domain carefully and accurately for phishing indicators.
+Analyze the provided domain carefully for phishing indicators. When in doubt, score HIGHER — missing phishing is far worse than a false alarm.
 
-IMPORTANT: Many legitimate websites exist on various hosting platforms and TLDs. Do NOT flag a domain as phishing simply because it uses a free hosting service or has an uncommon TLD. Look for COMBINATIONS of suspicious indicators.
+IMPORTANT SCORING GUIDANCE:
+- Score 50+ for ANY combination of 2+ suspicious indicators
+- Score 70+ when the domain shows clear signs of impersonation or deception
+- Score 80+ for obvious brand mimicry, known malicious patterns, or DGA-like domains
 
-CRITICAL RED FLAGS (score 70-100) — require STRONG evidence:
+CRITICAL RED FLAGS (score 70-100):
 - Domain clearly mimicking a major brand with typos or extra characters (e.g., paypa1.com, amaz0n-login.com)
 - Known malicious dynamic DNS services (duckdns.org, etc.)
 - IP addresses used as hostnames with credential-harvesting pages
 - Domains with brand names in subdomains pointing to unrelated hosts
+- Brand name concatenated with action words (e.g., paypal-secure, netflix-verify)
 
-MODERATE FLAGS (score 30-60):
-- Suspicious TLDs (.tk, .ml, .ga) combined with brand-related keywords
-- Recently registered domains with login/payment pages
+MODERATE FLAGS (score 40-70):
+- Suspicious TLDs (.tk, .ml, .ga, .xyz) combined with brand-related keywords
+- Domains on free hosting platforms with login/payment pages
 - Random character patterns suggesting automated domain generation
+- Newly registered-looking domains with suspicious patterns
 
 LOW RISK (score 0-30):
-- Established domains even if they use hosting platforms like Vercel, Netlify, or GitHub Pages
-- Domains with common words like "login" or "account" that are part of legitimate services
-- Uncommon TLDs without other suspicious indicators
-
-Be ACCURATE. Only score high when there are multiple strong indicators of phishing. A single suspicious characteristic is not enough.
+- Established domains on legitimate hosting platforms WITHOUT other suspicious indicators
+- Domains with common words that are clearly part of legitimate services
 
 Provide a risk score (0-100), confidence (0-1), detected signals, and explanation.`;
 
@@ -101,8 +103,8 @@ export class DomainAgent extends BaseAgent {
         const llmSignals = (llmResult.signals as Signal[]) || [];
         const allSignals = [...signals, ...llmSignals];
 
-        // Weighted average of local and LLM scores (not MAX — MAX causes over-scoring on legit sites)
-        const combinedScore = Math.round(localRiskScore * 0.4 + llmResult.riskScore * 0.6);
+        // Weighted average of local and LLM scores (55% local, 45% LLM — local heuristics are more reliable)
+        const combinedScore = Math.round(localRiskScore * 0.55 + llmResult.riskScore * 0.45);
 
         return this.createResult(
           combinedScore,
@@ -332,10 +334,21 @@ export class DomainAgent extends BaseAgent {
         const segments = hostnameLower.split(/[.\-]/);
         matches = segments.some(seg => seg === brandName);
       } else {
-        // Longer brand: require segment-based matching to avoid false positives
-        // e.g., "apple-login.evil.com" = match, but "appleseed.com" = no match
+        // Longer brand: check for exact segment match OR brand name contained within a segment
+        // e.g., "apple-login.evil.com" = match (exact segment "apple")
+        // e.g., "paypalsecure.evil.com" = match (segment "paypalsecure" contains "paypal")
+        // e.g., "appleseed.com" = no match (segment contains "apple" but domain IS "appleseed.com")
         const segments = hostnameLower.split(/[.\-]/);
-        matches = segments.some(seg => seg === brandName);
+        matches = segments.some(seg => {
+          // Exact segment match
+          if (seg === brandName) return true;
+          // Contained match: segment contains brand name AND segment is longer
+          // (brand name must be at least 5 chars to avoid false positives with short brand names)
+          if (brandName.length >= 5 && seg.includes(brandName) && seg.length > brandName.length) {
+            return true;
+          }
+          return false;
+        });
       }
 
       if (

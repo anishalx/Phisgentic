@@ -277,9 +277,9 @@ export abstract class BaseAgent {
     executionTimeMs: number,
   ): AgentResult {
     return this.createResult(
-      15, // Low score — errors should not inflate risk (default-to-allow)
-      0.1, // Low confidence
-      [this.createSignal("error", "low", error, "Analysis failed")],
+      40, // Neutral score — errors should NOT default to safe (security-first philosophy)
+      0.2, // Low confidence
+      [this.createSignal("error", "medium", error, "Analysis failed — treat with caution")],
       `Analysis error: ${error}`,
       executionTimeMs,
     );

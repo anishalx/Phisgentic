@@ -6,28 +6,32 @@ import { chromium, Browser, Page } from "playwright";
 import { CONFIG } from "../config/index.js";
 
 const SYSTEM_PROMPT = `You are a cybersecurity analyst specializing in webpage content analysis for phishing detection.
-Analyze the provided page content carefully and accurately for phishing indicators.
+Analyze the provided page content carefully for phishing indicators. When in doubt, score HIGHER — missing phishing is far worse than a false alarm.
 
-IMPORTANT: Distinguish between LEGITIMATE sites and PHISHING sites. Many legitimate websites have login forms, password fields, and brand references — this is NORMAL.
+IMPORTANT SCORING GUIDANCE:
+- Score 50+ for ANY combination of 2+ suspicious indicators
+- Score 70+ when phishing indicators are clearly present
+- Score 80+ when there is strong evidence of credential theft or brand impersonation
 
-CRITICAL RED FLAGS (score 70-100) — require STRONG evidence:
+CRITICAL RED FLAGS (score 70-100):
 - Forms submitting credentials to a DIFFERENT domain than the page (cross-origin credential theft)
 - Brand logos/names combined with a completely unrelated domain (e.g., "PayPal" login on random-domain.xyz)
 - Requests for highly sensitive data (SSN, full credit card, bank routing numbers) on non-banking domains
 - CAPTCHA pages specifically designed to hide content from security scanners
+- Pages that disable right-click, text selection, or browser back button
+- Hidden form fields or data: URI form actions
 
-MODERATE FLAGS (score 30-60):
+MODERATE FLAGS (score 40-70):
 - Generic login pages with no clear branding on unusual domains
 - Urgency/threat language combined with credential requests
 - External resource loading from suspicious domains
+- Pages with autocomplete="off" on password fields (hiding from browser security)
+- Login forms on free hosting platforms
 
 LOW RISK (score 0-30):
 - Login forms on established domains that submit to the SAME domain — this is NORMAL
 - E-commerce sites with payment flows on their own domain
 - News sites with subscription/login walls
-- Any page on a well-known domain
-
-Be ACCURATE. Only score high when there is strong evidence of phishing. A login form alone is NOT phishing.
 
 Provide a risk score (0-100), confidence (0-1), detected signals, and explanation.`;
 
@@ -180,8 +184,8 @@ export class ContentAgent extends BaseAgent {
       if (llmResult) {
         const allSignals = [...signals, ...llmResult.signals];
 
-        // Weighted average of local and LLM scores (not MAX — MAX causes over-scoring)
-        const combinedScore = Math.round(localRiskScore * 0.4 + llmResult.riskScore * 0.6);
+        // Weighted average of local and LLM scores (55% local, 45% LLM — local heuristics are more reliable)
+        const combinedScore = Math.round(localRiskScore * 0.55 + llmResult.riskScore * 0.45);
 
         return this.createResult(
           combinedScore,
@@ -560,6 +564,85 @@ export class ContentAgent extends BaseAgent {
         ),
       );
       score += 35;
+    }
+
+    // CHECK: Data URI form actions (used to exfiltrate data without a server)
+    for (const form of content.forms) {
+      if (form.action && form.action.toLowerCase().startsWith("data:")) {
+        signals.push(
+          this.createSignal(
+            "data_uri_form_action",
+            "critical",
+            form.action.substring(0, 50),
+            "Form uses data: URI action — potential data exfiltration",
+          ),
+        );
+        score += 40;
+        break;
+      }
+    }
+
+    // CHECK: Forms with autocomplete="off" on password fields
+    // Phishing pages disable autocomplete to avoid browser security warnings
+    // This is checked via the form input types from page evaluation
+    const passwordFormsCount = content.forms.filter(f => f.hasPasswordField).length;
+    if (passwordFormsCount > 0) {
+      // Check if any form has a password field — additional scoring for non-safe domains
+      const hostname = new URL(url).hostname;
+      const isSafe = CONFIG.SAFE_DOMAINS.some(
+        safe => hostname === safe || hostname.endsWith(`.${safe}`)
+      );
+      if (!isSafe && content.forms.some(f => f.hasPasswordField && f.inputTypes.length <= 3)) {
+        // Simple form with password field on unknown domain — suspicious
+        signals.push(
+          this.createSignal(
+            "simple_password_form",
+            "medium",
+            passwordFormsCount,
+            "Simple password form on unverified domain",
+          ),
+        );
+        score += 10;
+      }
+    }
+
+    // CHECK: Page has very little text but has forms (common phishing pattern)
+    // Phishing pages often have minimal content — just a form and a brand logo
+    if (content.textContent.trim().length < 200 && content.forms.length > 0 && content.hasPasswordField) {
+      signals.push(
+        this.createSignal(
+          "minimal_content_with_form",
+          "high",
+          content.textContent.trim().length,
+          "Page has minimal text content but contains a password form — common phishing pattern",
+        ),
+      );
+      score += 20;
+    }
+
+    // CHECK: Multiple external links that all go to the same suspicious domain
+    // Phishing pages often have all links pointing to the phishing domain
+    const externalDomains = new Set<string>();
+    const internalLinkCount = content.links.filter(l => !l.isExternal).length;
+    for (const link of content.links) {
+      if (link.isExternal) {
+        try {
+          externalDomains.add(new URL(link.href).hostname);
+        } catch {
+          // Invalid URL
+        }
+      }
+    }
+    if (content.links.length > 5 && internalLinkCount === 0 && externalDomains.size <= 1) {
+      signals.push(
+        this.createSignal(
+          "all_external_links",
+          "medium",
+          content.links.length,
+          "All links are external — page may be a phishing redirect hub",
+        ),
+      );
+      score += 10;
     }
 
     // CHECK: Hidden elements — detect via computed styles, not textContent

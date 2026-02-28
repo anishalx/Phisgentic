@@ -14,22 +14,27 @@ import {
 } from "../utils/url-parser.js";
 
 const SYSTEM_PROMPT = `You are a cybersecurity expert specializing in URL analysis for phishing detection.
-Analyze the provided URL structure and identify phishing indicators accurately.
+Analyze the provided URL structure and identify phishing indicators. When in doubt, score HIGHER — missing a phishing URL is far worse than a false alarm on a safe one.
 
-IMPORTANT: Many legitimate URLs contain words like "login", "account", "verify", or "secure" — these are NORMAL for real websites. Only flag URLs when multiple indicators combine to suggest phishing.
+IMPORTANT SCORING GUIDANCE:
+- Score 50+ for ANY combination of 2+ suspicious indicators
+- Score 70+ when phishing indicators are present, even without absolute certainty
+- Score 80+ when the URL clearly mimics a known brand or uses deceptive patterns
 
-Consider these risk factors (require COMBINATIONS, not single indicators):
-- IP addresses instead of domain names
-- Typosquatting patterns (misspelled brand names like "paypa1", "amaz0n")
-- Homograph attacks (Unicode lookalikes)
-- Excessive subdomain depth (>3 levels) combined with brand keywords
+Risk factors to evaluate:
+- IP addresses instead of domain names (high risk)
+- Typosquatting patterns (misspelled brand names like "paypa1", "amaz0n") — CRITICAL
+- Homograph attacks (Unicode lookalikes) — CRITICAL
+- Excessive subdomain depth (>3 levels) especially with brand keywords
 - URL shorteners hiding suspicious destinations
 - Encoded characters hiding the true destination
+- Multiple phishing keywords combined in URL path
+- Non-HTTPS on sites requesting credentials
 
 LOW RISK (normal behavior):
-- Keywords like "login", "signin", "account" in paths of legitimate domains
-- Long URLs from search engines, analytics, or e-commerce sites
-- HTTPS URLs with standard ports
+- Keywords like "login", "signin" in paths of VERIFIED legitimate domains only
+- Long URLs from search engines or e-commerce sites
+- HTTPS URLs with standard ports on known domains
 
 Provide a risk score (0-100), confidence (0-1), detected signals, and explanation.`;
 
@@ -91,9 +96,10 @@ export class UrlAgent extends BaseAgent {
         // Merge LLM signals with local signals (signals are already properly typed from LLMAnalysisResult)
         const allSignals = [...signals, ...llmResult.signals];
 
-        // Combine scores (weighted average: 40% local, 60% LLM)
+        // Combine scores (weighted average: 55% local, 45% LLM)
+        // Local heuristics are more reliable for phishing detection than LLM judgment
         const combinedScore = Math.round(
-          localRiskScore * 0.4 + llmResult.riskScore * 0.6,
+          localRiskScore * 0.55 + llmResult.riskScore * 0.45,
         );
 
         return this.createResult(
@@ -295,17 +301,8 @@ export class UrlAgent extends BaseAgent {
       score += 5;
     }
 
-    // Check for typosquatting
-    const brands = [
-      "paypal",
-      "amazon",
-      "apple",
-      "microsoft",
-      "google",
-      "facebook",
-      "netflix",
-      "instagram",
-    ];
+    // Check for typosquatting — use ALL protected brands from config, not a hardcoded subset
+    const brands = CONFIG.PROTECTED_BRANDS.map(b => b.name);
     const typosquatCheck = isSimilarToBrand(parsed.domain, brands);
     if (typosquatCheck.isSimilar) {
       signals.push(

@@ -5,9 +5,12 @@ import type { AgentResult, Signal, PageContent } from "../types/index.js";
 import { CONFIG } from "../config/index.js";
 
 const SYSTEM_PROMPT = `You are a cybersecurity expert specializing in heuristic phishing detection.
-Analyze the provided data using behavioral patterns and psychological manipulation indicators.
+Analyze the provided data using behavioral patterns and psychological manipulation indicators. When in doubt, score HIGHER — missing phishing is far worse than a false alarm.
 
-IMPORTANT: News websites, security blogs, and legitimate alert pages naturally contain words like "breach", "suspended", "unauthorized", "security alert". These are NOT phishing indicators when they appear in editorial/news content. Only flag urgency/threat language when it is DIRECTED AT THE USER and combined with credential/data requests.
+IMPORTANT SCORING GUIDANCE:
+- Score 50+ for ANY combination of 2+ manipulation/deception indicators
+- Score 70+ when psychological manipulation tactics are clearly targeting the user
+- Score 80+ when urgency + credential requests + threat language combine together
 
 Consider these risk factors:
 - Urgency language DIRECTED AT THE USER ("YOUR account", "act now", "verify YOUR identity")
@@ -16,12 +19,12 @@ Consider these risk factors:
 - Pressure tactics combined with login forms
 - Reward/prize scam language ("you have won", "claim your prize")
 - Poor grammar/spelling in official-looking communications
+- Combination of ANY two of: urgency + threats + credential requests = high risk
 
 Do NOT flag:
 - News articles discussing data breaches, security incidents, or account suspensions
-- Security advisories or blog posts about threats
-- Pages with article/news structure discussing security topics
-- Legitimate marketing with time-limited offers
+- Security advisories or blog posts about threats (check for article structure)
+- Legitimate marketing with time-limited offers (check for established brand context)
 
 Provide a risk score (0-100), confidence (0-1), detected signals, and explanation.`;
 
@@ -69,8 +72,9 @@ export class HeuristicAgent extends BaseAgent {
       if (llmResult) {
         const allSignals = [...signals, ...llmResult.signals];
 
+        // Combine scores (50% local, 50% LLM — balanced for heuristic analysis)
         const combinedScore = Math.round(
-          localRiskScore * 0.3 + llmResult.riskScore * 0.7,
+          localRiskScore * 0.5 + llmResult.riskScore * 0.5,
         );
 
         return this.createResult(

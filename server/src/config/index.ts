@@ -22,8 +22,8 @@ export const CONFIG = {
   DUAL_MODEL: {
     ENABLED: process.env.DUAL_MODEL_ENABLED !== "false", // Enabled by default
     CONSENSUS_THRESHOLD: 15, // Max score difference for auto-consensus
-    DISAGREEMENT_STRATEGY: "average" as "conservative" | "average" | "max",
-    // "conservative" = take higher score when models disagree significantly
+    DISAGREEMENT_STRATEGY: "conservative" as "conservative" | "average" | "max",
+    // "conservative" = take HIGHER score when models disagree (SAFER — missing phishing is worse than a false alarm)
     // "average" = average both scores (prevents single LLM hallucination from dominating)
     // "max" = take the maximum score
   },
@@ -31,17 +31,17 @@ export const CONFIG = {
   // Agent weights for final scoring (higher = more influence)
   AGENT_WEIGHTS: {
     urlAgent: 0.20,
-    domainAgent: 0.30, // Increased - domain reputation is critical
+    domainAgent: 0.25,
     contentAgent: 0.25,
     heuristicAgent: 0.15,
-    testerAgent: 0.10,
+    testerAgent: 0.15, // Increased — browser testing catches what static analysis misses
   } as Record<string, number>,
 
-  // Risk thresholds — Default-allow philosophy: only flag sites with HIGH confidence of phishing
+  // Risk thresholds — Security-first: better to warn on a safe site than miss phishing
   THRESHOLDS: {
-    ALLOW_MAX: 45,   // 0-45: Allow  (raised from 35 — more sites stay in allow zone)
-    WARN_MAX: 79,    // 46-79: Warn
-    BLOCK_MIN: 80,   // 80-100: Block (raised from 70 — requires stronger evidence to block)
+    ALLOW_MAX: 30,   // 0-30: Allow  (tightened from 45 — narrower safe zone)
+    WARN_MAX: 69,    // 31-69: Warn
+    BLOCK_MIN: 70,   // 70-100: Block (lowered from 80 — easier to block confirmed threats)
   },
 
   // Critical signal types that trigger immediate BLOCK verdict
@@ -162,6 +162,22 @@ export const CONFIG = {
     "serveftp.com",
     // Free hosting with extremely high abuse rates
     "000webhostapp.com",
+    // Additional high-abuse free hosting/DNS services
+    "rf.gd",
+    "infinityfreeapp.com",
+    "epizy.com",
+    "byethost.com",
+    "byet.host",
+    "awardspace.net",
+    "atwebpages.com",
+    "mywebcommunity.org",
+    "great-site.net",
+    "is-best.net",
+    "freenom.com",
+    "42web.io",
+    "freewebhostmost.com",
+    "16mb.com",
+    "creatorlink.net",
   ],
 
   // Suspicious TLDs — Only truly high-abuse TLDs
@@ -173,13 +189,13 @@ export const CONFIG = {
     ".icu", ".buzz", ".monster", ".rest", ".cam",
     ".uno", ".fit",
     ".pw", ".ws", ".su",  // High abuse
+    // Restored: additional high-abuse TLDs
+    ".link", ".site", ".online", ".live",
+    ".fun", ".website",
   ],
 
-  // Suspicious hosting — Only platforms with extremely high phishing abuse rates
-  // Removed: vercel.app, netlify.app, github.io, gitlab.io, herokuapp.com,
-  //          web.app, firebaseapp.com, azurewebsites.net, cloudfront.net,
-  //          wix.com, wordpress.com, blogspot.com, weebly.com
-  //          (all widely used by legitimate projects/businesses)
+  // Suspicious hosting — platforms with significant phishing abuse rates
+  // These won't auto-block but contribute to scoring when combined with other signals
   SUSPICIOUS_HOSTING_PATTERNS: [
     "000webhostapp.com",
     "forms.gle",
@@ -187,6 +203,24 @@ export const CONFIG = {
     "glitch.me",
     "repl.co",
     "sites.google.com",
+    // Restored: legitimate platforms that are also heavily abused for phishing
+    // Having a site on these is a moderate signal, not proof of phishing
+    "vercel.app",
+    "netlify.app",
+    "web.app",
+    "firebaseapp.com",
+    "github.io",
+    "herokuapp.com",
+    "blogspot.com",
+    "weebly.com",
+    "wix.com",
+    "wordpress.com",
+    "pages.dev",       // Cloudflare Pages
+    "workers.dev",     // Cloudflare Workers
+    "onrender.com",    // Render
+    "surge.sh",
+    "tiiny.site",
+    "carrd.co",
   ],
 
   // URL shortener domains
@@ -327,6 +361,32 @@ export const CONFIG = {
     "unauthorized", "unusual activity",
     "security alert", "important notice",
   ],
+
+  // Safe domain exclusions — subdomains of safe domains that are commonly abused for phishing
+  // These are checked BEFORE the safe domain whitelist, so phishing on these is still detected
+  SAFE_DOMAIN_EXCLUSIONS: [
+    "sites.google.com",
+    "docs.google.com",
+    "drive.google.com",
+    "storage.googleapis.com",
+    "forms.gle",
+    "s3.amazonaws.com",
+    "blob.core.windows.net",
+    "githubusercontent.com",
+    "raw.githubusercontent.com",
+    "gist.github.com",
+    "notion.site",
+    "sharepoint.com",
+    "sway.office.com",
+  ],
+
+  // Google Safe Browsing API Configuration
+  GOOGLE_SAFE_BROWSING: {
+    API_KEY: process.env.GOOGLE_SAFE_BROWSING_API_KEY || "",
+    API_URL: "https://safebrowsing.googleapis.com/v4/threatMatches:find",
+    ENABLED: !!process.env.GOOGLE_SAFE_BROWSING_API_KEY,
+    TIMEOUT_MS: 5000, // 5s timeout — don't block analysis if API is slow
+  },
 
   // Playwright settings
   PLAYWRIGHT: {
