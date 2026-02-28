@@ -7,7 +7,7 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { CONFIG } from "./config/index.js";
 import { getOrchestrator } from "./agents/orchestrator.js";
-import { closeBrowser, getBrowser } from "./agents/tester-agent.js";
+import { closeBrowser } from "./agents/tester-agent.js";
 import { getScanCache } from "./utils/cache.js";
 import type { ScanRequest, ScanResponse, AgentLog } from "./types/index.js";
 
@@ -120,113 +120,6 @@ app.post("/api/scan", async (req: Request, res: Response) => {
       error: error instanceof Error ? error.message : "Unknown error",
       logs: [],
     } as ScanResponse);
-  }
-});
-
-// Sandbox endpoint — captures a high-quality screenshot via Playwright without running full analysis
-app.post("/api/sandbox", async (req: Request, res: Response) => {
-  const parseResult = scanRequestSchema.safeParse(req.body);
-
-  if (!parseResult.success) {
-    const errorMessage = parseResult.error.issues[0]?.message || "Invalid request";
-    res.status(400).json({ success: false, error: errorMessage });
-    return;
-  }
-
-  const { url } = parseResult.data;
-  console.log(`[API] Sandbox preview for: ${url}`);
-
-  let context: import("playwright").BrowserContext | null = null;
-
-  try {
-    const browser = await getBrowser();
-    context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      viewport: { width: 1280, height: 720 },
-      ignoreHTTPSErrors: true,
-    });
-
-    const page = await context.newPage();
-
-    // Track redirects
-    const redirectChain: string[] = [];
-    page.on("response", (response) => {
-      const status = response.status();
-      if (status >= 300 && status < 400) {
-        const location = response.headers()["location"];
-        if (location) {
-          try {
-            const resolved = new URL(location, response.url()).href;
-            redirectChain.push(resolved);
-          } catch {
-            redirectChain.push(location);
-          }
-        }
-      }
-    });
-
-    // Block popups / dialogs
-    page.on("dialog", async (dialog) => {
-      try { await dialog.dismiss(); } catch { /* ignore */ }
-    });
-
-    const navStart = Date.now();
-    await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout: 20_000,
-    });
-
-    // Wait a short time for visual rendering
-    await page.waitForTimeout(1500);
-
-    const loadTimeMs = Date.now() - navStart;
-    const finalUrl = page.url();
-
-    // Extract page metadata
-    const metadata = await page.evaluate(() => {
-      const forms = document.querySelectorAll("form");
-      const links = document.querySelectorAll("a[href]");
-      return {
-        title: document.title || "",
-        formCount: forms.length,
-        linkCount: links.length,
-      };
-    });
-
-    // Capture high-quality screenshot
-    let screenshot = "";
-    try {
-      const buf = await page.screenshot({ type: "jpeg", quality: 90 });
-      screenshot = buf.toString("base64");
-    } catch {
-      // Screenshotting can fail on some pages
-    }
-
-    res.json({
-      success: true,
-      sandbox: {
-        screenshot,
-        url,
-        finalUrl,
-        title: metadata.title,
-        redirectChain,
-        loadTimeMs,
-        formCount: metadata.formCount,
-        linkCount: metadata.linkCount,
-        timestamp: Date.now(),
-      },
-    });
-  } catch (error) {
-    console.error("[API] Sandbox error:", error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : "Failed to capture sandbox preview",
-    });
-  } finally {
-    if (context) {
-      try { await context.close(); } catch { /* ignore */ }
-    }
   }
 });
 

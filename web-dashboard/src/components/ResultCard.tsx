@@ -11,14 +11,12 @@ import {
   AlertTriangle,
   XCircle,
   AlertOctagon,
-  Zap,
-  Monitor,
+  Zap
 } from "lucide-react";
 import type { FinalVerdict, Signal } from "@/types";
 
 interface ResultCardProps {
   verdict: FinalVerdict;
-  onOpenSandbox?: (url: string) => void;
 }
 
 // Get all critical/high signals across all agents
@@ -34,7 +32,7 @@ function getCriticalSignals(verdict: FinalVerdict): Signal[] {
   return signals;
 }
 
-export function ResultCard({ verdict, onOpenSandbox }: ResultCardProps) {
+export function ResultCard({ verdict }: ResultCardProps) {
   const criticalSignals = getCriticalSignals(verdict);
   
   const getVerdictStyles = () => {
@@ -260,26 +258,6 @@ export function ResultCard({ verdict, onOpenSandbox }: ResultCardProps) {
               {verdict.summary}
             </p>
           </div>
-
-          {/* Open in Sandbox — block verdicts only */}
-          {verdict.action === "block" && onOpenSandbox && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.6 }}
-            >
-              <button
-                onClick={() => onOpenSandbox(verdict.url)}
-                className="btn-sandbox w-full sm:w-auto"
-              >
-                <Monitor className="w-4 h-4" />
-                Open in Sandbox
-                <span className="text-slate-400 text-[10px] font-normal ml-1 hidden sm:inline">
-                  — Safe server-side preview
-                </span>
-              </button>
-            </motion.div>
-          )}
 
           {/* Screenshot */}
           {verdict.screenshot && (

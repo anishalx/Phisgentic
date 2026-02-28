@@ -6,8 +6,7 @@ import {
   ScanningInterface, 
   StatusFeed, 
   ResultCard, 
-  AgentBreakdown,
-  SandboxModal,
+  AgentBreakdown 
 } from "@/components";
 import { scanUrlWithStream } from "@/lib/api";
 import type { FinalVerdict, AgentLog, ScanStatus } from "@/types";
@@ -19,20 +18,12 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
 
-  // Sandbox state
-  const [sandboxOpen, setSandboxOpen] = useState(false);
-  const [sandboxUrl, setSandboxUrl] = useState<string | null>(null);
-
   const handleScan = useCallback(async (url: string) => {
     // Clean up any previous SSE connection
     if (cleanupRef.current) {
       cleanupRef.current();
       cleanupRef.current = null;
     }
-
-    // Close sandbox if open
-    setSandboxOpen(false);
-    setSandboxUrl(null);
 
     // Reset state
     setStatus("scanning");
@@ -75,16 +66,6 @@ export default function Home() {
     cleanupRef.current = cleanup;
   }, []);
 
-  const handleOpenSandbox = useCallback((url: string) => {
-    setSandboxUrl(url);
-    setSandboxOpen(true);
-  }, []);
-
-  const handleCloseSandbox = useCallback(() => {
-    setSandboxOpen(false);
-    setSandboxUrl(null);
-  }, []);
-
   return (
     <main className="min-h-screen py-12 px-4">
       <div className="max-w-7xl mx-auto">
@@ -110,14 +91,9 @@ export default function Home() {
         {/* Results */}
         {verdict && (
           <>
-            <ResultCard verdict={verdict} onOpenSandbox={handleOpenSandbox} />
+            <ResultCard verdict={verdict} />
             <AgentBreakdown results={verdict.agentResults} />
           </>
-        )}
-
-        {/* Sandbox Modal */}
-        {sandboxOpen && sandboxUrl && (
-          <SandboxModal url={sandboxUrl} onClose={handleCloseSandbox} />
         )}
 
         {/* Footer */}

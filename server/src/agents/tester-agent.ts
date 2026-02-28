@@ -25,7 +25,7 @@ Provide a risk score (0-100), confidence (0-1), detected signals, and explanatio
 let browserInstance: Browser | null = null;
 let browserInitPromise: Promise<Browser> | null = null;
 
-export async function getBrowser(): Promise<Browser> {
+async function getBrowser(): Promise<Browser> {
   if (browserInstance && browserInstance.isConnected()) {
     return browserInstance;
   }
