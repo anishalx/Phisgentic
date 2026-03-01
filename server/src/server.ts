@@ -249,11 +249,11 @@ const server = app.listen(CONFIG.PORT, "0.0.0.0", () => {
 ║   - GET  /api/health        - Health check + cache stats   ║
 ║                                                           ║
 ║   Performance:                                            ║
-║   - LRU scan cache (5min TTL, 100 entries)                ║
+║   - LRU scan cache (30min TTL, 500 entries)               ║
 ║   - LLM rate limiting (Groq 28/min, Gemini 14/min)       ║
 ║   - Parallel agent execution (all 5 agents)               ║
 ║   - Content truncation for LLM payloads                   ║
-║   - SSE server-side timeout (60s)                         ║
+║   - SSE server-side timeout (120s)                        ║
 ║                                                           ║
 ║   Security:                                               ║
 ║   - Rate limiting: 30 req/min per IP                      ║

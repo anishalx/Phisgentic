@@ -158,6 +158,11 @@ Each agent combines **fast local heuristic checks** (deterministic, sub-millisec
 |   |      |          |           |            |            |       |   |
 |   |      +-----+----+-----+----+------+-----+-----+------+       |   |
 |   |            |          |           |            |              |   |
+|   |  +---------------------------------------------------------+  |   |
+|   |  | Google Safe Browsing API v4 (optional)                  |  |   |
+|   |  | Runs in parallel with agents, can override early-exit   |  |   |
+|   |  +---------------------------------------------------------+  |   |
+|   |            |          |                                       |   |
 |   +---------------------------------------------------------------+   |
 |                |                                   |                  |
 |    +-----------+----------+           +-----------+-----------+       |
@@ -167,12 +172,6 @@ Each agent combines **fast local heuristic checks** (deterministic, sub-millisec
 |  | Llama 3.3 70B (text)|  | Gemini 2.0 Flash    |                    |
 |  | Llama 3.2 11B (vis.)|  | (cross-verification)|                    |
 |  +---------------------+  +---------------------+                    |
-|                                                                       |
-|   +---------------------------------------------------------------+   |
-|   |              External Threat Intelligence                      |   |
-|   |  [Google Safe Browsing API v4 (optional)]                      |   |
-|   |  Runs in parallel with agents, can override early-exit         |   |
-|   +---------------------------------------------------------------+   |
 |                                                                       |
 |   +---------------------------------------------------------------+   |
 |   |              Performance Layer                                 |   |
@@ -207,7 +206,7 @@ agent-browser/
 │   │   ├── config/
 │   │   │   └── index.ts                 # Weights, thresholds, blocklists, whitelists, LLM config
 │   │   ├── types/
-│   │   │   └── index.ts                 # TypeScript type definitions (20+ interfaces)
+│   │   │   └── index.ts                 # TypeScript type definitions (19 interfaces + type aliases)
 │   │   ├── utils/
 │   │   │   ├── url-parser.ts            # URL parsing, TLD extraction, homoglyph detection, Levenshtein distance
 │   │   │   ├── cache.ts                 # LRU scan cache with TTL and URL normalization
@@ -250,7 +249,7 @@ agent-browser/
 │   ├── config/
 │   │   └── index.ts                     # Extension config: API base URL, thresholds, safe domains, patterns
 │   ├── types/
-│   │   └── index.ts                     # Extension type system (20+ interfaces, message types, storage shape)
+│   │   └── index.ts                     # Extension type system (19 interfaces + message types, storage shape)
 │   ├── api/
 │   │   └── groq-client.ts              # Groq client reference (not used at runtime -- backend handles LLM calls)
 │   └── utils/
@@ -842,7 +841,7 @@ interface Signal {
 
 | Component | Purpose | Key Features |
 |-----------|---------|--------------|
-| `ScanningInterface` | URL input and scan trigger | URL validation (auto-prepends `https://`), quick-test buttons for safe/suspicious/phishing URLs, gradient shield icon with pulse animation |
+| `ScanningInterface` | URL input and scan trigger | URL validation (auto-prepends `https://`), quick-test buttons for safe/suspicious/phishing URLs, shield icon with scanning pulse animation |
 | `StatusFeed` | Real-time agent activity logs | Terminal-styled dark theme, auto-scroll, macOS traffic lights, color-coded log levels (`[INFO]` cyan, `[WARN]` amber, `[ERR!]` red, `[DONE]` green), blinking cursor |
 | `ResultCard` | Final verdict display | SVG circular gauge (animated), color-coded verdict banner (SAFE/SUSPICIOUS/DANGEROUS), critical signal badges, screenshot preview (with red tint for blocks), timestamp and confidence metadata |
 | `AgentBreakdown` | Per-agent detail view | Expandable accordion, agent icons (Link/Globe/FileText/Brain/TestTube), animated risk score bars, signal cards with severity icons, confidence percentage |
@@ -860,7 +859,7 @@ The dashboard uses a custom fetch-based SSE client (not native `EventSource`) wi
 - Manual line-by-line SSE parsing
 - `AbortController` for cancellation
 - Automatic retry (up to 2 retries with 1.5s delay) for network errors
-- Production URL auto-detection (falls back to `https://phishguard-api.onrender.com` when not on localhost)
+- Production URL auto-detection (falls back to `https://phishguard-api-m35d.onrender.com` when not on localhost)
 
 ---
 
@@ -1121,7 +1120,7 @@ The blueprint deploys two services:
 - Plan: Free
 - Build: `npm install --include=dev && npm run build`
 - Start: `npm start`
-- Auto-connects to API via `NEXT_PUBLIC_API_URL`
+- Auto-configured to connect to API via `NEXT_PUBLIC_API_URL`
 - Standalone output mode for efficient deployment
 
 > **Note**: The Tester Agent (Playwright) is disabled by default on Render's free tier since it requires a headless browser environment with Chromium binaries. Set `DISABLE_TESTER_AGENT=false` if your plan supports it.
