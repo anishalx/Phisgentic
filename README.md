@@ -1,6 +1,6 @@
 # PhishGuard AI - Multi-Agent Phishing Detection System
 
-A comprehensive, multi-agent AI-powered phishing detection system featuring **dual-model cross-verification** with two independent LLMs (Groq Llama 3.3 70B + Google Gemini 2.0 Flash) for consensus-based analysis. The system employs **5 specialized AI agents** that analyze URLs in parallel across multiple dimensions -- URL structure, domain reputation, page content, social engineering heuristics, and live browser behavioral testing. Delivered through three integrated platforms: a **Next.js Web Dashboard** with real-time SSE streaming, a **Node.js Backend API Server** with Playwright browser automation, and a **Chrome Browser Extension** (Manifest V3) for passive real-time protection.
+A comprehensive, multi-agent AI-powered phishing detection system featuring **dual-model cross-verification** with two independent LLMs (Groq Llama 3.3 70B + Google Gemini 2.0 Flash) for consensus-based analysis, plus optional **Google Safe Browsing API v4** integration for external threat intelligence. The system employs **5 specialized AI agents** that analyze URLs in parallel across multiple dimensions -- URL structure, domain reputation, page content, social engineering heuristics, and live browser behavioral testing. Delivered through three integrated platforms: a **Next.js Web Dashboard** with real-time SSE streaming, a **Node.js Backend API Server** with Playwright browser automation, and a **Chrome Browser Extension** (Manifest V3) for passive real-time protection.
 
 ![Architecture](structure.png)
 
@@ -63,11 +63,13 @@ A comprehensive, multi-agent AI-powered phishing detection system featuring **du
 
 - **Dual-Model AI Consensus**: Two independent LLMs (Groq Llama 3.3 70B + Google Gemini 2.0 Flash) cross-verify every analysis, reducing false negatives and increasing reliability
 - **5 Specialized AI Agents**: URL, Domain, Content, Heuristic, and Tester agents analyze URLs in parallel with weighted scoring
+- **Google Safe Browsing Integration**: Optional Google Safe Browsing Lookup API v4 integration provides external threat intelligence, running in parallel with agents and capable of overriding early-exit decisions
 - **Critical Veto System**: Instant block on high-confidence phishing signals (typosquatting, homograph attacks, cross-origin credential forms, logo mismatches) regardless of overall score
 - **Performance Optimized**: LRU caching (500 entries, 30-min TTL), parallel agent execution with deferred promises, token bucket rate limiting, content truncation, early-exit fast paths
 - **Vision-Based Logo Detection**: Groq Vision model (Llama 3.2 11B Vision) identifies brand logos on suspicious domains
 - **Real-Time Streaming**: Server-Sent Events (SSE) stream agent activity logs to the dashboard in real time
 - **3 Delivery Platforms**: Next.js Web Dashboard, Express API Server, Chrome Extension (Manifest V3)
+- **Security-First Thresholds**: Tightened scoring (allow <= 30, warn 31-69, block >= 70) with lowered conviction thresholds -- better to warn on a safe site than miss phishing
 - **Deployment Ready**: Render.com blueprint for one-click cloud deployment
 
 ---
@@ -94,17 +96,17 @@ The system deploys 5 specialized agents that each focus on a different dimension
 | Agent | Weight | Analysis Focus | Key Detection Capabilities |
 |-------|--------|----------------|----------------------------|
 | **URL Agent** | 20% | URL structure analysis | IP addresses, typosquatting, homograph attacks, suspicious TLDs, URL shorteners, encoded characters, phishing keywords |
-| **Domain Agent** | 30% | Domain reputation & identity | Blocklist matching, brand impersonation, DGA detection, suspicious hosting, excessive hyphens, domain length anomalies |
+| **Domain Agent** | 25% | Domain reputation & identity | Blocklist matching, brand impersonation, DGA detection, suspicious hosting, excessive hyphens, domain length anomalies |
 | **Content Agent** | 25% | Page content analysis | Cross-origin form submissions, brand mismatches, sensitive data requests, urgency language, mismatched links, hidden elements |
 | **Heuristic Agent** | 15% | Social engineering patterns | Urgency/threat language, reward scams, poor grammar, manipulative titles, suspicious URL parameters, news context awareness |
-| **Tester Agent** | 10% | Live browser behavioral testing | Redirects, popups, downloads, permission requests, safety warnings, form hijacking, vision-based logo detection, screenshot capture |
+| **Tester Agent** | 15% | Live browser behavioral testing | Redirects, popups, downloads, permission requests, safety warnings, form hijacking, vision-based logo detection, screenshot capture |
 
 Each agent combines **fast local heuristic checks** (deterministic, sub-millisecond) with **dual-model LLM analysis** (deeper semantic understanding) using a configurable weighted blend (typically 40% local + 60% LLM).
 
 ### Performance Optimizations
 
-- **Parallel Agent Execution**: All 5 agents run simultaneously using a deferred promise pattern. URL and Domain agents start immediately; Tester Agent launches a headless browser; Content and Heuristic agents await page content from Tester Agent, then run their analysis in parallel.
-- **Early-Exit Fast Path**: If both URL Agent and Domain Agent score < 10 (clearly safe), the remaining 3 agents are skipped entirely, saving 5-10 seconds per scan.
+- **Parallel Agent Execution**: All 5 agents run simultaneously using a deferred promise pattern. URL and Domain agents start immediately; Tester Agent launches a headless browser; Content and Heuristic agents await page content from Tester Agent, then run their analysis in parallel. Google Safe Browsing check runs in parallel with all agents.
+- **Early-Exit Fast Path**: If both URL Agent and Domain Agent score < 5 (clearly safe) AND Google Safe Browsing does not flag the URL, the remaining 3 agents are skipped entirely, saving 5-10 seconds per scan. If Safe Browsing flags the URL, early exit is cancelled and full analysis proceeds.
 - **LLM Fast Path**: Individual agents skip LLM calls when local analysis produces a score < 10 (clearly safe) or >= 80 (clearly dangerous), saving 2-4 seconds per agent.
 - **LRU Scan Cache**: 500-entry cache with 30-minute TTL for instant repeat scans. URL normalization ensures consistent cache hits.
 - **LLM Rate Limiting**: Token bucket algorithm prevents API quota exhaustion -- Groq at 28 req/min (below 30 RPM free tier), Gemini at 14 req/min (below 15 RPM free tier).
@@ -151,7 +153,7 @@ Each agent combines **fast local heuristic checks** (deterministic, sub-millisec
 |   |  +--------+ +--------+ +---------+ +----------+ +---------+  |   |
 |   |  |  URL   | | Domain | | Content | | Heuristic| | Tester  |  |   |
 |   |  | Agent  | | Agent  | |  Agent  | |  Agent   | |  Agent  |  |   |
-|   |  | (20%)  | | (30%)  | |  (25%)  | |  (15%)   | |  (10%)  |  |   |
+|   |  | (20%)  | | (25%)  | |  (25%)  | |  (15%)   | |  (15%)  |  |   |
 |   |  +---+----+ +---+----+ +----+----+ +----+-----+ +----+----+  |   |
 |   |      |          |           |            |            |       |   |
 |   |      +-----+----+-----+----+------+-----+-----+------+       |   |
@@ -165,6 +167,12 @@ Each agent combines **fast local heuristic checks** (deterministic, sub-millisec
 |  | Llama 3.3 70B (text)|  | Gemini 2.0 Flash    |                    |
 |  | Llama 3.2 11B (vis.)|  | (cross-verification)|                    |
 |  +---------------------+  +---------------------+                    |
+|                                                                       |
+|   +---------------------------------------------------------------+   |
+|   |              External Threat Intelligence                      |   |
+|   |  [Google Safe Browsing API v4 (optional)]                      |   |
+|   |  Runs in parallel with agents, can override early-exit         |   |
+|   +---------------------------------------------------------------+   |
 |                                                                       |
 |   +---------------------------------------------------------------+   |
 |   |              Performance Layer                                 |   |
@@ -194,7 +202,8 @@ agent-browser/
 │   │   │   └── orchestrator.ts          # Parallel agent coordination, weighted scoring, veto logic
 │   │   ├── api/
 │   │   │   ├── groq-client.ts           # Groq LLM client (text + vision, singleton, rate-limited)
-│   │   │   └── gemini-client.ts         # Google Gemini Flash client (singleton, rate-limited)
+│   │   │   ├── gemini-client.ts         # Google Gemini Flash client (singleton, rate-limited)
+│   │   │   └── safe-browsing-client.ts  # Google Safe Browsing Lookup API v4 client (optional)
 │   │   ├── config/
 │   │   │   └── index.ts                 # Weights, thresholds, blocklists, whitelists, LLM config
 │   │   ├── types/
@@ -298,6 +307,9 @@ GEMINI_API_KEY=your_gemini_api_key_here
 
 # Enable dual-model consensus (set to "true" if you have both keys)
 DUAL_MODEL_ENABLED=true
+
+# Optional -- Enables Google Safe Browsing external threat intelligence
+GOOGLE_SAFE_BROWSING_API_KEY=your_safe_browsing_api_key_here
 ```
 
 Start the server:
@@ -525,7 +537,7 @@ Analyzes URL structure for phishing indicators without fetching the page.
 | URL length | > 75 characters | +3 | low |
 | IP address instead of domain | Public IPv4 detected (excludes private/local) | +25 | critical |
 | Subdomain depth | > 3 levels deep | +8 | medium |
-| Suspicious TLD | `.tk`, `.ml`, `.ga`, `.cf`, `.gq`, `.xyz`, `.top`, `.click`, `.icu`, `.buzz`, `.monster`, etc. | +20 | high |
+| Suspicious TLD | `.tk`, `.ml`, `.ga`, `.cf`, `.gq`, `.xyz`, `.top`, `.click`, `.icu`, `.buzz`, `.monster`, `.rest`, `.cam`, `.uno`, `.fit`, `.pw`, `.ws`, `.su`, `.link`, `.site`, `.online`, `.live`, `.fun`, `.website` | +20 | high |
 | URL shortener | `bit.ly`, `tinyurl.com`, `t.co`, `goo.gl`, `ow.ly`, etc. (16 services) | +15 | medium |
 | Encoded characters | `%XX` patterns in URL | +3 | low |
 | Special characters | > 10 special chars in pathname | +10 | medium |
@@ -539,7 +551,7 @@ Analyzes URL structure for phishing indicators without fetching the page.
 
 ### 2. Domain Agent
 
-**ID:** `domainAgent` | **Weight:** 30% (highest) | **Score Blend:** 40% local + 60% LLM
+**ID:** `domainAgent` | **Weight:** 25% | **Score Blend:** 40% local + 60% LLM
 
 Analyzes domain reputation, brand impersonation, and blocklist matching. This is the most critical agent.
 
@@ -547,7 +559,7 @@ Analyzes domain reputation, brand impersonation, and blocklist matching. This is
 |----------------|-----------|--------------|----------|
 | Safe domain | Matches 150+ trusted domains (Google, Microsoft, etc.) | **Instant score 0** | - |
 | Blocklist match | `duckdns.org`, `000webhostapp.com`, `ddns.net`, etc. | **Instant score 95** | critical |
-| Suspicious hosting | `000webhostapp.com`, `forms.gle`, `sites.google.com`, etc. | +20 | high |
+| Suspicious hosting | `000webhostapp.com`, `forms.gle`, `sites.google.com`, `vercel.app`, `netlify.app`, `web.app`, `firebaseapp.com`, `github.io`, `herokuapp.com`, `blogspot.com`, `weebly.com`, `wix.com`, `wordpress.com`, `pages.dev`, `workers.dev`, `onrender.com`, `surge.sh`, `tiiny.site`, `carrd.co`, `glitch.me`, `repl.co` | +20 | high |
 | Brand impersonation | Brand name found in domain segments, not on official domain | +45 | critical |
 | Brand in subdomain | Brand name in subdomain but different main domain | +40 | critical |
 | Suspicious TLD | Matches suspicious TLD list | +25 | high |
@@ -608,7 +620,7 @@ Detects social engineering patterns and behavioral manipulation tactics. Feature
 
 ### 5. Tester Agent
 
-**ID:** `testerAgent` | **Weight:** 10% | **Score Blend:** 40% local + 60% LLM
+**ID:** `testerAgent` | **Weight:** 15% | **Score Blend:** 40% local + 60% LLM
 
 Performs live browser behavioral testing using Playwright. Launches a headless Chromium browser, navigates to the URL, and monitors for suspicious behaviors.
 
@@ -643,7 +655,7 @@ Performs live browser behavioral testing using Playwright. Launches a headless C
 
 ## Orchestrator and Scoring
 
-The orchestrator (`orchestrator.ts`) is the central coordinator that runs all agents, applies veto logic, and produces the final verdict.
+The orchestrator (`orchestrator.ts`) is the central coordinator that runs all agents, applies veto logic, and produces the final verdict. It also integrates with Google Safe Browsing API v4 for external threat intelligence.
 
 ### Parallel Execution Pipeline
 
@@ -661,16 +673,22 @@ The orchestrator (`orchestrator.ts`) is the central coordinator that runs all ag
                         │  Heuristic Agent (awaits  │──┘
                         │  pageContent from Tester) │
                         └──────────────────────────┘
+                        ┌──────────────────────────┐
+                        │  Google Safe Browsing     │── Runs in parallel
+                        │  (external threat intel)  │   Can override early exit
+                        └──────────────────────────┘
 
-Early Exit: If URL + Domain both score < 10 → skip remaining 3 agents
+Early Exit: If URL + Domain both score < 5 AND Safe Browsing clear → skip remaining 3 agents
 ```
 
 1. **URL Agent** and **Domain Agent** start immediately (no browser needed)
-2. **Tester Agent** starts the headless browser in parallel
-3. A deferred promise (`pageContentPromise`) is created
-4. **Content Agent** and **Heuristic Agent** await this promise, which resolves when Tester Agent completes and provides `pageContent`
-5. Once resolved, Content and Heuristic agents run their analysis in parallel
-6. All results are collected via `Promise.allSettled()` with a per-agent timeout of 45 seconds
+2. **Google Safe Browsing** check runs in parallel with all agents (if configured)
+3. **Tester Agent** starts the headless browser in parallel
+4. A deferred promise (`pageContentPromise`) is created
+5. **Content Agent** and **Heuristic Agent** await this promise, which resolves when Tester Agent completes and provides `pageContent`
+6. Once resolved, Content and Heuristic agents run their analysis in parallel
+7. All results are collected via `Promise.allSettled()` with a per-agent timeout of 45 seconds
+8. If Google Safe Browsing flags the URL, a synthetic `known_phishing_domain` veto signal is injected into results
 
 ### Weighted Scoring Formula
 
@@ -709,11 +727,11 @@ The orchestrator uses a 5-layer priority cascade to determine the final verdict:
 |----------|-----------|--------|
 | **0** | URL domain matches the safe domains whitelist (150+ domains) | **Instant ALLOW** (score 0, confidence 0.99) |
 | **1** | Any agent reports a critical veto signal (from the list above) | **Instant BLOCK** (score >= 85) |
-| **2** | Single agent conviction: any agent scores >= 85 | **BLOCK** |
-| **3** | Consensus block: 2+ agents score > 70 | **BLOCK** (average of suspicious agents, minimum 65) |
-| **4** | Weighted average calculation with standard thresholds | `allow` (<= 45), `warn` (46-79), `block` (>= 80) |
+| **2** | Single agent conviction: any agent scores >= 75 | **BLOCK** |
+| **3** | Consensus block: 2+ agents score > 55 | **BLOCK** (average of suspicious agents, minimum 65) |
+| **4** | Weighted average calculation with standard thresholds | `allow` (<= 30), `warn` (31-69), `block` (>= 70) |
 
-**Bump Rule:** If the weighted average produces an "allow" action but there are 3+ high-severity signals OR any critical-severity signal present, the verdict is bumped from "allow" to "warn".
+**Bump Rule:** If the weighted average produces an "allow" action but there are 2+ high-severity signals OR any critical-severity signal present, the verdict is bumped from "allow" to "warn".
 
 ---
 
@@ -946,10 +964,10 @@ Configured in `server/src/config/index.ts`:
 ```typescript
 AGENT_WEIGHTS: {
   urlAgent: 0.20,       // 20% - URL structure analysis
-  domainAgent: 0.30,    // 30% - Domain reputation (most critical)
+  domainAgent: 0.25,    // 25% - Domain reputation (highest alongside content)
   contentAgent: 0.25,   // 25% - Page content analysis
   heuristicAgent: 0.15, // 15% - Social engineering patterns
-  testerAgent: 0.10,    // 10% - Browser behavioral testing
+  testerAgent: 0.15,    // 15% - Browser behavioral testing (catches what static analysis misses)
 }
 ```
 
@@ -959,9 +977,9 @@ AGENT_WEIGHTS: {
 
 ```typescript
 THRESHOLDS: {
-  ALLOW_MAX: 45,   // 0-45: Safe (allow)
-  WARN_MAX: 79,    // 46-79: Suspicious (warn)
-  BLOCK_MIN: 80,   // 80-100: Dangerous (block)
+  ALLOW_MAX: 30,   // 0-30: Safe (allow)
+  WARN_MAX: 69,    // 31-69: Suspicious (warn)
+  BLOCK_MIN: 70,   // 70-100: Dangerous (block)
 }
 ```
 
@@ -986,6 +1004,7 @@ THRESHOLDS: {
 | `NODE_ENV` | No | `development` | Environment mode (`development` / `production`) |
 | `DISABLE_TESTER_AGENT` | No | `false` | Disable Playwright-based tester agent (for platforms without browser support) |
 | `DISABLE_VISION_DETECTION` | No | `false` | Disable vision-based logo detection |
+| `GOOGLE_SAFE_BROWSING_API_KEY` | No | - | Google Safe Browsing API key (enables external threat intelligence checks) |
 | `DASHBOARD_URL` | No | - | Dashboard URL for CORS (production) |
 | `NEXT_PUBLIC_API_URL` | No | `http://localhost:3001` | Dashboard's API base URL |
 
@@ -1005,41 +1024,66 @@ Over **150 trusted domains** across categories that receive instant "allow" verd
 - **Government/Shipping:** usps.com, fedex.com, ups.com, dhl.com
 - And many more...
 
+### Safe Domain Exclusions
+
+Subdomains of safe domains that are commonly abused for phishing are excluded from the safe domain whitelist. These are checked **before** the whitelist, so phishing hosted on these subdomains is still detected:
+
+```
+sites.google.com, docs.google.com, drive.google.com,
+storage.googleapis.com, forms.gle, s3.amazonaws.com,
+blob.core.windows.net, githubusercontent.com,
+raw.githubusercontent.com, gist.github.com,
+notion.site, sharepoint.com, sway.office.com
+```
+
 ### Blocklist Domains
 
 Domains that receive instant "block" verdicts (score 95, critical severity):
 
 ```
+# Free dynamic DNS services heavily abused for phishing
 duckdns.org, ddns.net, no-ip.org, hopto.org, zapto.org,
-sytes.net, serveblog.net, serveftp.com, 000webhostapp.com
+sytes.net, serveblog.net, serveftp.com,
+
+# Free hosting with extremely high abuse rates
+000webhostapp.com, rf.gd, infinityfreeapp.com, epizy.com,
+byethost.com, byet.host, awardspace.net, atwebpages.com,
+mywebcommunity.org, great-site.net, is-best.net, freenom.com,
+42web.io, freewebhostmost.com, 16mb.com, creatorlink.net
 ```
 
 ### Protected Brands
 
-27 brands with full impersonation detection:
+26 brands with full impersonation detection:
 
 | Brand | Official Domain | Min Length for Detection |
 |-------|----------------|------------------------|
-| PayPal | paypal.com | 6 |
-| Amazon | amazon.com | 6 |
-| Apple | apple.com | 5 |
-| Microsoft | microsoft.com | 9 |
-| Google | google.com | 6 |
-| Facebook | facebook.com | 8 |
-| Netflix | netflix.com | 7 |
-| Instagram | instagram.com | 9 |
-| Chase | chase.com | 5 |
-| Wells Fargo | wellsfargo.com | 10 |
+| PayPal | paypal.com | 4 |
+| Amazon | amazon.com | 4 |
+| Apple | apple.com | 4 |
+| Microsoft | microsoft.com | 4 |
+| Google | google.com | 4 |
+| Facebook | facebook.com | 4 |
+| Netflix | netflix.com | 4 |
+| Instagram | instagram.com | 4 |
+| Chase | chase.com | 4 |
+| Wells Fargo | wellsfargo.com | 4 |
 | USPS | usps.com | 4 |
-| FedEx | fedex.com | 5 |
+| FedEx | fedex.com | 4 |
 | UPS | ups.com | 3 |
 | DHL | dhl.com | 3 |
-| Walmart | walmart.com | 7 |
+| Walmart | walmart.com | 4 |
 | eBay | ebay.com | 4 |
-| Dropbox | dropbox.com | 7 |
-| Coinbase | coinbase.com | 8 |
-| Binance | binance.com | 7 |
-| And more... | | |
+| Dropbox | dropbox.com | 4 |
+| Coinbase | coinbase.com | 4 |
+| Binance | binance.com | 4 |
+| Spotify | spotify.com | 4 |
+| LinkedIn | linkedin.com | 4 |
+| Twitter | twitter.com | 4 |
+| Meta | meta.com | 4 |
+| Outlook | outlook.com | 4 |
+| iCloud | icloud.com | 4 |
+| Office365 | office.com | 4 |
 
 **Short Brand Protection:** Brands with <= 3 characters (UPS, DHL) use exact segment matching instead of substring matching to prevent false positives (e.g., "setup.com" won't match "ups").
 
@@ -1092,6 +1136,7 @@ The blueprint deploys two services:
 | **Browser Automation** | Playwright (Chromium) | Headless browser for content extraction, form analysis, screenshot capture |
 | **AI/LLM (Primary)** | Groq API | Llama 3.3 70B Versatile (text), Llama 3.2 11B Vision Preview (logo detection) |
 | **AI/LLM (Secondary)** | Google Gemini API | Gemini 2.0 Flash (cross-verification) |
+| **Threat Intelligence** | Google Safe Browsing API v4 | External threat database lookup (optional, malware/phishing/social engineering) |
 | **Web Dashboard** | Next.js 14, React 18, TailwindCSS | App Router, SSE streaming, Framer Motion animations, Lucide icons |
 | **Chrome Extension** | Manifest V3, Vite, TypeScript | Service worker, content script, popup UI |
 | **Performance** | Custom implementations | LRU cache with TTL, token bucket rate limiter, payload truncation |
