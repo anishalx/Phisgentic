@@ -8,6 +8,7 @@ import { TesterAgent } from "./tester-agent.js";
 import type { AgentResult, PageContent, FinalVerdict, AgentLog, Signal } from "../types/index.js";
 import { CONFIG } from "../config/index.js";
 import { getSafeBrowsingClient } from "../api/safe-browsing-client.js";
+import { getScanDeduplicator } from "../utils/dedup.js";
 import type { Page } from "playwright";
 
 export interface OrchestratorResult {
@@ -34,6 +35,20 @@ export class Orchestrator {
     url: string,
     onLog?: (log: AgentLog) => void,
     /** Optional: Provide an existing Playwright Page to reuse */
+    externalPage?: Page,
+  ): Promise<OrchestratorResult> {
+    // Request deduplication: if same URL is being scanned, reuse result
+    const dedup = getScanDeduplicator();
+    const normalizedUrl = url.toLowerCase().trim();
+
+    return dedup.dedup(normalizedUrl, () =>
+      this._analyzeUrlInternal(url, onLog, externalPage)
+    );
+  }
+
+  private async _analyzeUrlInternal(
+    url: string,
+    onLog?: (log: AgentLog) => void,
     externalPage?: Page,
   ): Promise<OrchestratorResult> {
     const startTime = Date.now();

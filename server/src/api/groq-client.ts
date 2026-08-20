@@ -3,8 +3,15 @@
 import { CONFIG } from "../config/index.js";
 import type { GroqRequest, GroqResponse, GroqMessage, LogoDetectionResult, LLMAnalysisResult } from "../types/index.js";
 import { getGroqRateLimiter } from "../utils/rate-limiter.js";
+import { CircuitBreaker } from "../utils/circuit-breaker.js";
+import { withRetry, isRetryableError } from "../utils/retry.js";
 
-const REQUEST_TIMEOUT_MS = 20_000; // 20 second timeout (down from 25s to leave headroom for 30s orchestrator)
+const REQUEST_TIMEOUT_MS = 20_000;
+const groqCircuitBreaker = new CircuitBreaker("groq", {
+  failureThreshold: 5,
+  resetTimeoutMs: 30_000,
+  successThreshold: 2,
+});
 
 export class GroqClient {
   private apiUrl: string;
@@ -53,15 +60,27 @@ export class GroqClient {
       // Rate limit: wait for token before making API call
       await getGroqRateLimiter().acquire(REQUEST_TIMEOUT_MS);
 
-      const response = await fetch(this.apiUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(request),
-        signal: controller.signal,
-      });
+      // Circuit breaker + retry for transient failures
+      const response = await groqCircuitBreaker.execute(() =>
+        withRetry(
+          async () => {
+            const res = await fetch(this.apiUrl, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${this.apiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(request),
+              signal: controller.signal,
+            });
+            if (!res.ok && isRetryableError(`${res.status}`)) {
+              throw new Error(`API error: ${res.status}`);
+            }
+            return res;
+          },
+          { maxRetries: 2, baseDelayMs: 500 }
+        )
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
