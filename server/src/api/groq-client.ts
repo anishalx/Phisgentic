@@ -197,6 +197,7 @@ export class GroqClient {
               : "medium") as "low" | "medium" | "high" | "critical",
             value: signal.value !== undefined ? String(signal.value) : "",
             description: String(signal.description || ""),
+            origin: "llm" as const,
           };
         }),
         explanation: data.explanation,

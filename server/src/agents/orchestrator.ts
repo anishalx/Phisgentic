@@ -16,6 +16,20 @@ export interface OrchestratorResult {
   logs: AgentLog[];
 }
 
+/**
+ * A signal only triggers an instant-block veto when it was produced by
+ * deterministic local code or trusted external intel (origin "local",
+ * "synthetic", or unset on legacy/inline signals). LLM-suggested signals
+ * never veto — a model can hallucinate a veto-list TYPE name (e.g.
+ * "typosquatting") on a legitimate site, and the veto check is type-based.
+ */
+export function isVetoSignal(signal: Signal): boolean {
+  if (signal.origin === "llm") return false;
+  return (CONFIG.CRITICAL_VETO_SIGNALS as readonly string[]).includes(
+    signal.type,
+  );
+}
+
 export class Orchestrator {
   private urlAgent: UrlAgent;
   private domainAgent: DomainAgent;
@@ -255,6 +269,7 @@ export class Orchestrator {
           severity: "critical",
           value: url,
           description: safeBrowsingDescription,
+          origin: "synthetic",
         }],
         explanation: safeBrowsingDescription,
         executionTimeMs: 0,
@@ -361,10 +376,7 @@ export class Orchestrator {
     // We no longer veto on s.severity === "critical" because LLMs can hallucinate
     // critical severity on legitimate sites. Only the explicitly listed types
     // (blocklist, typosquatting, homograph, etc.) are unambiguous enough to auto-block.
-    const criticalTypes = CONFIG.CRITICAL_VETO_SIGNALS as readonly string[];
-    const vetoSignals = allSignals.filter(
-      (s) => criticalTypes.includes(s.type)
-    );
+    const vetoSignals = allSignals.filter((s) => isVetoSignal(s));
     
     if (vetoSignals.length > 0) {
       const maxScore = Math.max(...agentResults.map(r => r.riskScore));

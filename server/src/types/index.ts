@@ -5,6 +5,14 @@ export interface Signal {
   severity: "low" | "medium" | "high" | "critical";
   value: string | number | boolean;
   description: string;
+  /**
+   * Who produced this signal:
+   * - "local": deterministic code detection (trusted)
+   * - "llm":   suggested by Groq/Gemini (never triggers a veto block)
+   * - "synthetic": injected by external intel like Google Safe Browsing (trusted)
+   * Absent on legacy/inline signals, which are treated as local.
+   */
+  origin?: "local" | "llm" | "synthetic";
 }
 
 export interface AgentResult {

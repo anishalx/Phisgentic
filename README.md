@@ -706,10 +706,12 @@ This confidence-weighted approach means high-confidence results have more influe
 
 The following signal types trigger an **immediate block** (score >= 85) regardless of the overall weighted average:
 
+> **Vetoes only fire on deterministic detections.** Every signal carries an `origin` (`local` | `llm` | `synthetic`). LLM-suggested signals never trigger a veto — a model can hallucinate a veto-list type name on a legitimate site — so only locally-detected signals and trusted external intel (Safe Browsing) can auto-block. LLM agreement still raises the score, it just can't hard-block by itself.
+
 | Veto Signal | Source Agent(s) | Description |
 |-------------|-----------------|-------------|
 | `blocklist_match` | Domain | Domain on known phishing blocklist |
-| `known_phishing_domain` | Domain | Domain identified as known phishing |
+| `known_phishing_domain` | Safe Browsing (external) | URL flagged by Google Safe Browsing v4 |
 | `typosquatting` | URL | Domain mimics a known brand (e.g., `paypa1.com`) |
 | `homograph` | URL | Unicode lookalike characters in domain (e.g., Cyrillic "а" in "pаypal") |
 | `download_attempted` | Tester | Automatic file download triggered on page load |
@@ -725,7 +727,7 @@ The orchestrator uses a 5-layer priority cascade to determine the final verdict:
 | Priority | Condition | Result |
 |----------|-----------|--------|
 | **0** | URL domain matches the safe domains whitelist (150+ domains) | **Instant ALLOW** (score 0, confidence 0.99) |
-| **1** | Any agent reports a critical veto signal (from the list above) | **Instant BLOCK** (score >= 85) |
+| **1** | Any agent reports a locally-detected veto signal (from the list above; LLM suggestions excluded) | **Instant BLOCK** (score >= 85) |
 | **2** | Single agent conviction: any agent scores >= 75 | **BLOCK** |
 | **3** | Consensus block: 2+ agents score > 55 | **BLOCK** (average of suspicious agents, minimum 65) |
 | **4** | Weighted average calculation with standard thresholds | `allow` (<= 30), `warn` (31-69), `block` (>= 70) |
@@ -807,20 +809,23 @@ interface Signal {
   severity: "low" | "medium" | "high" | "critical";
   value: string | number | boolean;
   description: string; // Human-readable explanation
+  origin?: "local" | "llm" | "synthetic"; // who produced it; "llm" never vetoes
 }
 ```
 
 ### Complete Signal Catalog
 
-**URL Agent Signals:** `ip_address`, `suspicious_tld`, `url_shortener`, `encoded_characters`, `homograph`, `phishing_keywords`, `typosquatting`, `no_https`, `non_standard_port`, `excessive_length`, `deep_subdomains`, `special_characters`
+**URL Agent Signals:** `url_length`, `ip_address`, `subdomain_depth`, `suspicious_tld`, `url_shortener`, `encoded_chars`, `special_chars`, `homograph`, `phishing_keywords`, `typosquatting`, `no_https`, `non_standard_port`
 
-**Domain Agent Signals:** `blocklist_match`, `known_phishing_domain`, `brand_impersonation`, `brand_in_subdomain`, `suspicious_hosting`, `suspicious_tld`, `dga_detected`, `suspicious_patterns`, `excessive_hostname_length`, `multiple_hyphens`
+**Domain Agent Signals:** `known_safe`, `blocklist_match`, `suspicious_hosting`, `brand_impersonation`, `brand_in_subdomain`, `suspicious_tld`, `dga_pattern`, `long_domain`, `excessive_hyphens`, `multiple_hyphens`, `suspicious_domain_pattern`
 
-**Content Agent Signals:** `external_form_action`, `title_brand_mismatch`, `sensitive_data_request`, `urgency_language`, `mismatched_brand_links`, `captcha_detected`, `empty_page`, `login_form_detected`
+**Content Agent Signals:** `fetch_blocked`, `content_blocked`, `no_content`, `empty_page`, `login_form_same_domain`, `login_form_suspicious_domain`, `external_form_action`, `title_brand_mismatch`, `sensitive_data_request`, `urgency_threat`, `mismatched_brand_links`, `data_uri_form_action`, `simple_password_form`, `minimal_content_with_form`, `all_external_links`
 
-**Heuristic Agent Signals:** `urgency_language`, `threat_language`, `sensitive_data_request`, `reward_scam`, `manipulative_title`, `poor_grammar`, `suspicious_url_params`, `base64_data`, `urgency_in_url`
+**Heuristic Agent Signals:** `urgency_in_url`, `urgency_language`, `high_urgency`, `threat_language`, `high_threat`, `sensitive_data_request`, `reward_scam`, `manipulative_title`, `poor_grammar`, `suspicious_params`, `encoded_data`
 
-**Tester Agent Signals:** `cross_origin_password_form`, `cross_origin_credential_form`, `safety_warning`, `download_attempted`, `excessive_redirects`, `cross_domain_redirect`, `permission_requests`, `popups_detected`, `overlays_detected`, `slow_load`, `logo_domain_mismatch`
+**Tester Agent Signals:** `test_skipped`, `cross_origin_password_form`, `cross_origin_credential_form`, `cross_origin_form`, `safety_warning`, `download_attempted`, `excessive_redirects`, `multiple_redirects`, `cross_domain_redirect`, `permission_requests`, `popups_detected`, `overlays_detected`, `excessive_errors`, `slow_load`, `logo_domain_mismatch`
+
+**External/System Signals:** `known_phishing_domain` (Google Safe Browsing veto injection), `error` (agent failure fallback)
 
 ---
 

@@ -251,7 +251,7 @@ export abstract class BaseAgent {
     value: string | number | boolean,
     description: string,
   ): Signal {
-    return { type, severity, value, description };
+    return { type, severity, value, description, origin: "local" };
   }
 
   protected createResult(

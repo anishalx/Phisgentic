@@ -169,6 +169,7 @@ ${JSON.stringify(analysisData, null, 2)}`;
               : "medium") as Signal["severity"],
             value: signal.value !== undefined ? String(signal.value) : "",
             description: String(signal.description || ""),
+            origin: "llm" as const,
           };
         }),
         explanation: String(parsed.explanation || ""),
