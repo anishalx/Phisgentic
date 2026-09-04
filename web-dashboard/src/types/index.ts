@@ -5,6 +5,7 @@ export interface Signal {
   severity: "low" | "medium" | "high" | "critical";
   value: string | number | boolean;
   description: string;
+  origin?: "local" | "llm" | "synthetic"; // server-side provenance; "llm" never vetoes
 }
 
 export interface AgentResult {

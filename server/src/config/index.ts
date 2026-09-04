@@ -52,6 +52,8 @@ export const CONFIG = {
     "known_phishing_domain",
     "typosquatting",
     "homograph",
+    "brand_impersonation",
+    "brand_in_subdomain",
     "download_attempted",
     "safety_warning",
     // Advanced Detection

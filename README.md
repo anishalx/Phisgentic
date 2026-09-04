@@ -714,6 +714,8 @@ The following signal types trigger an **immediate block** (score >= 85) regardle
 | `known_phishing_domain` | Safe Browsing (external) | URL flagged by Google Safe Browsing v4 |
 | `typosquatting` | URL | Domain mimics a known brand (e.g., `paypa1.com`) |
 | `homograph` | URL | Unicode lookalike characters in domain (e.g., Cyrillic "а" in "pаypal") |
+| `brand_impersonation` | Domain | Brand as an exact label or glued to a credential keyword on a non-official domain (e.g., `paypal-login.com`, `paypalsecure.com`). Substring-only matches like `amazonaws.com` are excluded |
+| `brand_in_subdomain` | Domain | Brand label as a subdomain of an unrelated domain (e.g., `accounts.google.com.evil-site.top`) |
 | `download_attempted` | Tester | Automatic file download triggered on page load |
 | `safety_warning` | Tester | Browser Safe Browsing warning detected |
 | `logo_domain_mismatch` | Tester | Vision-detected brand logo on non-brand domain |

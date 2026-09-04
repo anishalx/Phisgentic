@@ -21,6 +21,8 @@ const DOCUMENTED_VETO_SIGNALS = [
   "known_phishing_domain",
   "typosquatting",
   "homograph",
+  "brand_impersonation",
+  "brand_in_subdomain",
   "download_attempted",
   "safety_warning",
   "logo_domain_mismatch",
@@ -52,7 +54,15 @@ describe("isVetoSignal (origin guard)", () => {
   it("does not veto on non-veto types even at critical severity", () => {
     expect(isVetoSignal(signal("ip_address", "critical", "local"))).toBe(false);
     expect(isVetoSignal(signal("external_form_action", "critical", "local"))).toBe(false);
-    expect(isVetoSignal(signal("brand_impersonation", "critical", "local"))).toBe(false);
+    expect(isVetoSignal(signal("mismatched_brand_links", "critical", "local"))).toBe(false);
+  });
+
+  it("vetoes locally-detected brand impersonation signals", () => {
+    expect(isVetoSignal(signal("brand_impersonation", "critical", "local"))).toBe(true);
+    expect(isVetoSignal(signal("brand_in_subdomain", "critical", "local"))).toBe(true);
+    // ...but never when the LLM suggested them
+    expect(isVetoSignal(signal("brand_impersonation", "critical", "llm"))).toBe(false);
+    expect(isVetoSignal(signal("brand_in_subdomain", "critical", "llm"))).toBe(false);
   });
 });
 

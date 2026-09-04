@@ -5,6 +5,20 @@ import type { AgentResult, Signal } from "../types/index.js";
 import { CONFIG } from "../config/index.js";
 import { parseUrl } from "../utils/url-parser.js";
 
+/**
+ * Words that turn "brand + word" glued domains into credential-phishing
+ * tells ("paypalsecure", "securepaypal"). Used by checkBrandImpersonation
+ * to avoid flagging legitimate domains that merely contain a brand name
+ * as a substring ("amazonaws.com", "appleseed.com", "microsoft365.com").
+ */
+const BRAND_GLUE_KEYWORDS = new Set([
+  "login", "signin", "signup", "secure", "verify", "verification",
+  "account", "accounts", "update", "confirm", "support", "help",
+  "auth", "authorize", "password", "credential", "alert", "unlock",
+  "security", "billing", "banking", "service", "sso", "access",
+  "suspend", "suspended", "validate", "authenticate", "unusual",
+]);
+
 const SYSTEM_PROMPT = `You are a cybersecurity analyst specializing in domain threat intelligence.
 Analyze the provided domain carefully for phishing indicators. When in doubt, score HIGHER — missing phishing is far worse than a false alarm.
 
@@ -334,20 +348,29 @@ export class DomainAgent extends BaseAgent {
         const segments = hostnameLower.split(/[.\-]/);
         matches = segments.some(seg => seg === brandName);
       } else {
-        // Longer brand: check for exact segment match OR brand name contained within a segment
-        // e.g., "apple-login.evil.com" = match (exact segment "apple")
-        // e.g., "paypalsecure.evil.com" = match (segment "paypalsecure" contains "paypal")
-        // e.g., "appleseed.com" = no match (segment contains "apple" but domain IS "appleseed.com")
+        // Longer brand: exact segment match OR brand glued to a
+        // credential/phishing keyword (e.g., "paypalsecure",
+        // "securepaypal"). Plain substring containment is NOT enough —
+        // legitimate domains like "appleseed.com", "amazonaws.com" and
+        // "microsoft365.com" merely contain a brand name.
         const segments = hostnameLower.split(/[.\-]/);
         matches = segments.some(seg => {
           // Exact segment match
           if (seg === brandName) return true;
-          // Contained match: segment contains brand name AND segment is longer
-          // (brand name must be at least 5 chars to avoid false positives with short brand names)
-          if (brandName.length >= 5 && seg.includes(brandName) && seg.length > brandName.length) {
-            return true;
-          }
-          return false;
+          if (brandName.length < 5 || !seg.includes(brandName)) return false;
+          // Brand + keyword glued together (either order):
+          //   "paypalsecure"  -> suffix "secure"
+          //   "securepaypal"  -> prefix "secure"
+          const suffix = seg.endsWith(brandName)
+            ? seg.slice(0, seg.length - brandName.length)
+            : "";
+          const prefix = seg.startsWith(brandName)
+            ? seg.slice(brandName.length)
+            : "";
+          return (
+            (prefix.length > 0 && BRAND_GLUE_KEYWORDS.has(prefix)) ||
+            (suffix.length > 0 && BRAND_GLUE_KEYWORDS.has(suffix))
+          );
         });
       }
 
