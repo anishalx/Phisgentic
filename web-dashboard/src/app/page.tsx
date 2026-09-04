@@ -6,7 +6,8 @@ import {
   ScanningInterface, 
   StatusFeed, 
   ResultCard, 
-  AgentBreakdown 
+  AgentBreakdown,
+  ErrorBoundary 
 } from "@/components";
 import { scanUrlWithStream } from "@/lib/api";
 import type { FinalVerdict, AgentLog, ScanStatus } from "@/types";
@@ -67,6 +68,7 @@ export default function Home() {
   }, []);
 
   return (
+    <ErrorBoundary>
     <main className="min-h-screen py-12 px-4">
       <div className="max-w-7xl mx-auto">
         {/* Scanning Interface */}
@@ -112,5 +114,6 @@ export default function Home() {
         </motion.footer>
       </div>
     </main>
+    </ErrorBoundary>
   );
 }

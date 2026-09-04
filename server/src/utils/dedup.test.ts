@@ -118,4 +118,44 @@ describe("RequestDeduplicator", () => {
     expect(dedup.size).toBe(0);
     await Promise.all([p1, p2]);
   });
+
+  it("destroy rejection is observable by the owner of the request", async () => {
+    const fn = vi.fn().mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve("ok"), 5000))
+    );
+
+    // The caller (owner) must see the destroy rejection on the promise
+    // returned by dedup() itself -- not just deduplicated waiters.
+    const owner = dedup.dedup("key1", fn);
+    const waiter = dedup.dedup("key1", fn);
+
+    dedup.destroy();
+
+    await expect(owner).rejects.toThrow("Deduplicator destroyed");
+    await expect(waiter).rejects.toThrow("Deduplicator destroyed");
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("stale entries are rejected and removed by cleanup", async () => {
+    vi.useFakeTimers();
+    // Recreate the instance so its cleanup interval runs on fake timers
+    dedup.destroy();
+    dedup = new RequestDeduplicator();
+
+    const fn = vi.fn().mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve("ok"), 5000))
+    );
+
+    const pending = dedup.dedup("key1", fn).catch(() => {});
+    expect(dedup.size).toBe(1);
+
+    // Advance beyond the 2-minute stale timeout. The cleanup interval ticks
+    // every 30s, so step past the 150s tick (120s + one full interval) to
+    // ensure the entry is strictly older than the timeout.
+    vi.advanceTimersByTime(151_000);
+
+    expect(dedup.size).toBe(0);
+    await pending;
+    vi.useRealTimers();
+  });
 });

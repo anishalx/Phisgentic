@@ -4,11 +4,14 @@ node_modules/
 
 # Next.js build output
 .next/
-**/. next/
+**/.next/
 
 # Build outputs
 dist/
 build/
+
+# TypeScript incremental build info
+*.tsbuildinfo
 
 # Environment files
 .env

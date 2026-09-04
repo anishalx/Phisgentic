@@ -46,6 +46,15 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   console.log(`[PhishGuard AI] Analyzing URL: ${url}`);
   console.log(`[PhishGuard AI] Tab ID: ${tabId}`);
 
+  // Clean up stale data from previous navigation in this tab
+  const prevUrl = analyzedUrls.get(tabId);
+  if (prevUrl && prevUrl !== url) {
+    analysisResults.delete(tabId);
+    pendingAnalyses.delete(tabId);
+    analyzedUrls.delete(tabId);
+    console.log(`[PhishGuard AI] Cleaned up stale data for tab ${tabId}`);
+  }
+
   // Check settings
   const settings = await getSettings();
   if (!settings.enabled) {

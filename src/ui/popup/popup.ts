@@ -9,6 +9,13 @@ import {
 } from "../../utils/storage";
 import { extractDomain } from "../../utils/url-parser";
 
+/** Get CSS class for risk score display */
+function getScoreClass(score: number): string {
+  if (score <= 30) return "low";
+  if (score <= 70) return "medium";
+  return "high";
+}
+
 // DOM Elements
 const enabledToggle = document.getElementById("enabled-toggle") as HTMLInputElement;
 const statusHero = document.getElementById("status-hero") as HTMLElement;
@@ -132,13 +139,31 @@ function setupEventListeners() {
 
   // Report false positive
   reportBtn.addEventListener("click", () => {
-    alert("Thank you for your feedback! This will help improve our detection.");
+    reportBtn.innerHTML = `
+      <svg viewBox="0 0 20 20" fill="currentColor">
+        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+      </svg>
+      Reported!
+    `;
+    reportBtn.disabled = true;
+    reportBtn.classList.add("active");
+    setTimeout(() => {
+      reportBtn.innerHTML = `
+        <svg viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M3 6a3 3 0 013-3h10a1 1 0 01.8 1.6L14.25 8l2.55 3.4A1 1 0 0116 13H6a1 1 0 00-1 1v3a1 1 0 11-2 0V6z" clip-rule="evenodd"/>
+        </svg>
+        Report
+      `;
+      reportBtn.disabled = false;
+      reportBtn.classList.remove("active");
+    }, 2000);
   });
 
   // Toggle history panel
   historyBtn.addEventListener("click", async () => {
     historyVisible = !historyVisible;
     historyBtn.classList.toggle("active", historyVisible);
+    historyBtn.setAttribute("aria-expanded", String(historyVisible));
     
     if (historyVisible) {
       await loadHistory();
@@ -288,12 +313,6 @@ async function loadHistory() {
       `;
     })
     .join("");
-}
-
-function getScoreClass(score: number): string {
-  if (score <= 30) return "low";
-  if (score <= 70) return "medium";
-  return "high";
 }
 
 function formatTime(timestamp: number): string {

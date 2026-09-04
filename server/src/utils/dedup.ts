@@ -53,16 +53,19 @@ export class RequestDeduplicator {
 
     this.pending.set(key, entry as PendingRequest<unknown>);
 
-    try {
-      const result = await fn();
-      resolve(result);
-      return result;
-    } catch (error) {
-      reject(error);
-      throw error;
-    } finally {
+    // Execute the work in the background and settle the shared promise exactly
+    // once. The promise stored in `pending` is the SAME promise returned to
+    // every caller (owner and deduplicated waiters alike), so a rejection from
+    // `destroy()` or the stale-entry cleanup is observable and catchable by
+    // everyone who called `dedup()` -- no unhandled rejections.
+    fn().then(
+      (result) => resolve(result),
+      (error) => reject(error),
+    ).finally(() => {
       this.pending.delete(key);
-    }
+    });
+
+    return promise;
   }
 
   /**

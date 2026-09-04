@@ -18,16 +18,22 @@ export function ScanningInterface({ onScan, status }: ScanningInterfaceProps) {
     e.preventDefault();
     setError("");
 
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) {
+      setError("Please enter a URL");
+      return;
+    }
+
     // Basic URL validation
     try {
-      new URL(url);
-      onScan(url);
+      new URL(trimmedUrl);
+      onScan(trimmedUrl);
     } catch {
       // Try adding https://
-      if (!url.startsWith("http")) {
+      if (!trimmedUrl.startsWith("http")) {
         try {
-          new URL(`https://${url}`);
-          onScan(`https://${url}`);
+          new URL(`https://${trimmedUrl}`);
+          onScan(`https://${trimmedUrl}`);
           return;
         } catch {
           setError("Please enter a valid URL");

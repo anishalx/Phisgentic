@@ -106,6 +106,9 @@ function showWarning(verdict: FinalVerdict): void {
 
   warningOverlay = document.createElement("div");
   warningOverlay.id = "phishguard-warning-overlay";
+  warningOverlay.setAttribute("role", "dialog");
+  warningOverlay.setAttribute("aria-modal", "true");
+  warningOverlay.setAttribute("aria-label", `PhishGuard Security Warning - ${riskLevel} RISK`);
   warningOverlay.innerHTML = `
     <style>
       #phishguard-warning-overlay {
@@ -426,8 +429,34 @@ function showWarning(verdict: FinalVerdict): void {
 
   document.body.appendChild(warningOverlay);
 
+  // Focus the primary action button
+  const goBackBtn = document.getElementById("phishguard-go-back");
+  goBackBtn?.focus();
+
+  // Keyboard trap: keep Tab cycling within the overlay
+  warningOverlay.addEventListener("keydown", (e) => {
+    if (e.key !== "Tab") return;
+    const focusable = warningOverlay?.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
+    );
+    if (!focusable || focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  });
+
   // Event: Go back
-  document.getElementById("phishguard-go-back")?.addEventListener("click", () => {
+  goBackBtn?.addEventListener("click", () => {
     window.history.back();
     setTimeout(() => {
       window.location.href = "about:blank";
@@ -455,6 +484,17 @@ function showWarning(verdict: FinalVerdict): void {
     warningOverlay?.remove();
     warningOverlay = null;
   });
+
+  // Allow Escape key to go back (safer than proceed)
+  const escHandler = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && warningOverlay) {
+      window.history.back();
+      setTimeout(() => {
+        window.location.href = "about:blank";
+      }, 100);
+    }
+  };
+  document.addEventListener("keydown", escHandler);
 }
 
 function getScoreClass(score: number): string {
