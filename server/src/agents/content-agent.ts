@@ -425,7 +425,7 @@ export class ContentAgent extends BaseAgent {
               signals.push(
                 this.createSignal(
                   "external_form_action",
-                  "high",
+                  "critical",
                   form.action,
                   "Credentials submitted to unknown external domain",
                 ),

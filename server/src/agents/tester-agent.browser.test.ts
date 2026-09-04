@@ -81,5 +81,43 @@ describe.skipIf(!browserInstalled)(
       },
       60_000,
     );
+
+    it("flags >5 console errors as low severity (README: +10 low)", async () => {
+      const NOISY_PAGE = `<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+  <h1>Plain page</h1>
+  <script>
+    for (let i = 0; i < 6; i++) { console.error("boom " + i); }
+  </script>
+</body>
+</html>`;
+      const server = await new Promise<{ port: number; close: () => void }>(
+        (resolve, reject) => {
+          const s = http.createServer((_req, res) => {
+            res.writeHead(200, { "Content-Type": "text/html" });
+            res.end(NOISY_PAGE);
+          });
+          s.on("error", reject);
+          s.listen(0, "127.0.0.1", () => {
+            const addr = s.address();
+            if (addr && typeof addr === "object") {
+              resolve({ port: addr.port, close: () => s.close() });
+            } else reject(new Error("failed to bind"));
+          });
+        },
+      );
+      const agent = new TesterAgent();
+      try {
+        const result = await agent.analyze(`http://127.0.0.1:${server.port}/`);
+        const signal = result.signals.find((s) => s.type === "excessive_errors");
+        expect(signal).toBeDefined();
+        expect(signal!.severity).toBe("low");
+      } finally {
+        server.close();
+        await closeBrowser();
+      }
+    }, 60_000);
   },
 );

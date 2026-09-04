@@ -135,7 +135,7 @@ export class UrlAgent extends BaseAgent {
       signals.push(
         this.createSignal(
           "url_length",
-          "low",
+          "medium",
           parsed.full.length,
           "Long URL",
         ),

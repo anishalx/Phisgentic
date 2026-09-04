@@ -811,7 +811,7 @@ export class TesterAgent extends BaseAgent {
       signals.push(
         this.createSignal(
           "excessive_errors",
-          "medium",
+          "low",
           result.consoleErrors.length,
           "Excessive console errors",
         ),

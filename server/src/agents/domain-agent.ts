@@ -170,7 +170,7 @@ export class DomainAgent extends BaseAgent {
       signals.push(
         this.createSignal(
           "suspicious_hosting",
-          "medium",
+          "high",
           hostingMatch,
           `Uses free hosting service sometimes abused for phishing: ${hostingMatch}`,
         ),

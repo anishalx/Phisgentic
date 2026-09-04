@@ -241,7 +241,7 @@ export class HeuristicAgent extends BaseAgent {
       signals.push(
         this.createSignal(
           "high_urgency",
-          "high",
+          "critical",
           urgencyCount,
           "Multiple urgency indicators detected",
         ),
