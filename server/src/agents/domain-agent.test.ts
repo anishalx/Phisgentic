@@ -34,6 +34,15 @@ describe("brand detection false positives (must stay clean)", () => {
     expect(await brandSignals("https://www.appleseed.com/")).toEqual([]);
     expect(await brandSignals("https://s3.amazonaws.com/bucket")).toEqual([]);
     expect(await brandSignals("https://microsoft365.com/")).toEqual([]);
+    expect(await brandSignals("https://www.applecare.com/")).toEqual([]);
+    expect(await brandSignals("https://googlemail.com/")).toEqual([]);
+    expect(await brandSignals("https://login.microsoftonline.com/")).toEqual([]);
+    expect(await brandSignals("https://shopify-support.com/")).toEqual([]);
+  });
+
+  it("excludes official brand subdomains at the label boundary", async () => {
+    expect(await brandSignals("https://evil.paypal.com/")).toEqual([]);
+    expect(await brandSignals("https://secure.amazon.com/")).toEqual([]);
   });
 });
 
@@ -51,7 +60,22 @@ describe("brand detection true positives (veto-class impersonation)", () => {
     expect(await brandSignals("https://paypalsecure.com/")).toContain(
       "brand_impersonation",
     );
-    expect(await brandSignals("https://securepaypal-verify.net/")).toContain(
+    expect(await brandSignals("https://securepaypal.net/")).toContain(
+      "brand_impersonation",
+    );
+  });
+
+  it("flags brand glued to a keyword even on the brand's own TLD", async () => {
+    // "securepaypal.com" / "verification-paypal.com" end their STRING with
+    // "paypal.com" but are NOT official — the label boundary is the hyphen,
+    // not a dot, so they must still be flagged as impersonation.
+    expect(await brandSignals("https://securepaypal.com/")).toContain(
+      "brand_impersonation",
+    );
+    expect(await brandSignals("https://verification-paypal.com/")).toContain(
+      "brand_impersonation",
+    );
+    expect(await brandSignals("https://my-paypal.com/")).toContain(
       "brand_impersonation",
     );
   });

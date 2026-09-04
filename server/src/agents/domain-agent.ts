@@ -374,11 +374,7 @@ export class DomainAgent extends BaseAgent {
         });
       }
 
-      if (
-        matches &&
-        !hostnameLower.endsWith(brand.domain) &&
-        domainLower !== brand.domain
-      ) {
+      if (matches && !this.isOfficialBrandDomain(hostnameLower, brand.domain)) {
         return {
           isImpersonation: true,
           brand: brandName,
@@ -387,6 +383,16 @@ export class DomainAgent extends BaseAgent {
       }
     }
     return { isImpersonation: false };
+  }
+
+  /**
+   * True when the hostname IS the brand's official domain or a subdomain of
+   * it (evil.paypal.com). Label-boundary aware: "verification-paypal.com"
+   * must NOT count as official just because its string ends in "paypal.com"
+   * — the registrable domain there is verification-paypal.com, not paypal.com.
+   */
+  private isOfficialBrandDomain(hostname: string, brandDomain: string): boolean {
+    return hostname === brandDomain || hostname.endsWith(`.${brandDomain}`);
   }
 
   private checkBrandInSubdomain(domain: string, hostname: string): string | null {
@@ -404,7 +410,10 @@ export class DomainAgent extends BaseAgent {
     for (const brand of brands) {
       // For ALL brands, require exact segment match in subdomain
       // e.g., "paypal.login.evil.com" = match, but "paypalresearch.evil.com" = no match
-      if (subdomainSegments.some(seg => seg === brand.name) && !hostname.endsWith(brand.domain)) {
+      if (
+        subdomainSegments.some(seg => seg === brand.name) &&
+        !this.isOfficialBrandDomain(hostname, brand.domain)
+      ) {
         return brand.name;
       }
     }
