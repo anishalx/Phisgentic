@@ -19,6 +19,18 @@ const BRAND_GLUE_KEYWORDS = new Set([
   "suspend", "suspended", "validate", "authenticate", "unusual",
 ]);
 
+/**
+ * Generic words squatters glue IN FRONT of a brand without a hyphen
+ * ("mypaypal.com", "getpaypal.com", "freepaypal.com"). Deliberately tiny:
+ * broader words collide with legitimate domains ("online" →
+ * login.microsoftonline.com, "app"/"live" → official brand-adjacent names),
+ * and "secure"/"login"/"signin" are already covered by BRAND_GLUE_KEYWORDS.
+ * The front-attached part may be a keyword OR one of these prefixes; the
+ * back-attached part stays limited to BRAND_GLUE_KEYWORDS so names like
+ * "whatsappweb.com", "netflixparty.com" or "instagrammer.com" never match.
+ */
+const BRAND_SQUAT_PREFIXES = new Set(["my", "get", "free", "go", "official"]);
+
 const SYSTEM_PROMPT = `You are a cybersecurity analyst specializing in domain threat intelligence.
 Analyze the provided domain carefully for phishing indicators. When in doubt, score HIGHER — missing phishing is far worse than a false alarm.
 
@@ -358,18 +370,23 @@ export class DomainAgent extends BaseAgent {
           // Exact segment match
           if (seg === brandName) return true;
           if (brandName.length < 5 || !seg.includes(brandName)) return false;
-          // Brand + keyword glued together (either order):
-          //   "paypalsecure"  -> suffix "secure"
-          //   "securepaypal"  -> prefix "secure"
-          const suffix = seg.endsWith(brandName)
+          // Brand glued to another word, either order:
+          //   "paypalsecure"      -> brand first,  back part "secure"
+          //   "securepaypal"      -> brand last,   front part "secure"
+          //   "mypaypal"          -> brand last,   front part "my"
+          // The BACK part must be a credential keyword; the FRONT part may
+          // additionally be a squat prefix (my/get/free/go/official).
+          const front = seg.endsWith(brandName)
             ? seg.slice(0, seg.length - brandName.length)
             : "";
-          const prefix = seg.startsWith(brandName)
+          const back = seg.startsWith(brandName)
             ? seg.slice(brandName.length)
             : "";
           return (
-            (prefix.length > 0 && BRAND_GLUE_KEYWORDS.has(prefix)) ||
-            (suffix.length > 0 && BRAND_GLUE_KEYWORDS.has(suffix))
+            (front.length > 0 &&
+              (BRAND_GLUE_KEYWORDS.has(front) ||
+                BRAND_SQUAT_PREFIXES.has(front))) ||
+            (back.length > 0 && BRAND_GLUE_KEYWORDS.has(back))
           );
         });
       }

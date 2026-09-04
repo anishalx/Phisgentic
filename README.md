@@ -188,8 +188,18 @@ Each agent combines **fast local heuristic checks** (deterministic, sub-millisec
 ## Project Structure
 
 ```
-agent-browser/
-├── server/                              # Backend API Server
+phishguard/
+├── server/                              # Backend API Server (the entire detection engine)
+│   ├── src/
+│   │   ├── agents/
+│   │   │   ├── base-agent.ts            # Abstract agent class + dual-model consensus engine
+│   │   │   ├── url-agent.ts             # URL structure analysis (typosquatting, homographs)
+│   │   │   ├── domain-agent.ts          # Domain reputation checks (blocklists, brand impersonation)
+│   │   │   ├── content-agent.ts         # Page content analysis via Playwright
+│   │   │   ├── heuristic-agent.ts       # Social engineering pattern matching
+│   │   │   ├── tester-agent.ts          # Browser behavioral testing + vision logo detection
+│   │   │   └── orchestrator.ts          # Parallel agent coordination, weighted scoring, veto logic
+│   │   │                                # (+ colocated *.test.ts unit tests per module)
 │   ├── src/
 │   │   ├── agents/
 │   │   │   ├── base-agent.ts            # Abstract agent class + dual-model consensus engine
@@ -206,12 +216,19 @@ agent-browser/
 │   │   ├── config/
 │   │   │   └── index.ts                 # Weights, thresholds, blocklists, whitelists, LLM config
 │   │   ├── types/
-│   │   │   └── index.ts                 # TypeScript type definitions (19 interfaces + type aliases)
+│   │   │   └── index.ts                 # Detection-engine types: Signal (with origin), AgentResult, FinalVerdict,
+│   │   │                                # PageContent, LLM/messaging internals
 │   │   ├── utils/
-│   │   │   ├── url-parser.ts            # URL parsing, TLD extraction, homoglyph detection, Levenshtein distance
+│   │   │   ├── url-parser.ts            # URL parsing, expanded ccTLD list, typosquatting (isSimilarToBrand)
 │   │   │   ├── cache.ts                 # LRU scan cache with TTL and URL normalization
-│   │   │   └── rate-limiter.ts          # Token bucket rate limiter with async queue
-│   │   └── server.ts                    # Express server: endpoints, SSE streaming, middleware, graceful shutdown
+│   │   │   ├── rate-limiter.ts          # Token bucket rate limiter with async queue
+│   │   │   ├── retry.ts                 # Retry wrapper with backoff
+│   │   │   ├── circuit-breaker.ts       # Circuit breaker for upstream LLM/SB calls
+│   │   │   └── dedup.ts                 # In-flight request deduplication
+│   │   ├── app.ts                       # Express app: routes, middleware, SSE streaming
+│   │   └── server.ts                    # Bootstraps app.ts + listens (health/startup)
+│   ├── package.json                     # Dependencies: express, playwright, zod, helmet, cors
+│   └── tsconfig.json                    # TypeScript config (ES2022, NodeNext modules)
 │   ├── package.json                     # Dependencies: express, playwright, zod, helmet, cors
 │   └── tsconfig.json                    # TypeScript config (ES2022, NodeNext modules)
 │
@@ -247,13 +264,12 @@ agent-browser/
 │   │   ├── popup.html                   # Popup markup: header, SVG ring, agent grid, signals, quick actions, history panel
 │   │   └── popup.css                    # Dark theme design system with CSS custom properties
 │   ├── config/
-│   │   └── index.ts                     # Extension config: API base URL, thresholds, safe domains, patterns
+│   │   └── index.ts                     # Extension config: API base URL, thresholds, safe domains
 │   ├── types/
-│   │   └── index.ts                     # Extension type system (19 interfaces + message types, storage shape)
-│   ├── api/
-│   │   └── groq-client.ts              # Groq client reference (not used at runtime -- backend handles LLM calls)
+│   │   └── index.ts                     # Wire-contract types (Signal, AgentResult, FinalVerdict) + extension
+│   │                                    # messaging/storage types (no agent internals)
 │   └── utils/
-│       ├── url-parser.ts                # URL parsing, TLD handling, homoglyph detection, Levenshtein distance
+│       ├── url-parser.ts                # Browser-safe URL parsing: TLD handling (smaller ccTLD list), no Node deps
 │       └── storage.ts                   # Chrome storage wrapper: settings, whitelist, history, API key CRUD
 │
 ├── scripts/
@@ -273,6 +289,17 @@ agent-browser/
 ├── package.json                         # Root package: extension build scripts, vite, @types/chrome
 └── README.md                            # This file
 ```
+
+### Extension vs. Server Shared Code
+
+All analysis logic lives in `server/` — the extension (`src/`) is API-mode only and never runs agents or LLM calls locally. Two modules are intentionally **copied, then trimmed** into the extension because the server versions carry Node-only dependencies:
+
+| Module | Extension copy (`src/`) | Server original (`server/src/`) |
+|--------|-------------------------|--------------------------------|
+| `utils/url-parser.ts` | Browser-safe: smaller two-part TLD list, no Node deps | Expanded ccTLD list + `isSimilarToBrand` typosquatting helper used by the URL agent |
+| `types/index.ts` | Wire-contract types only (`Signal`, `AgentResult`, `FinalVerdict`) plus extension messaging/storage types (`Message`, `Settings`, `StorageData`, …) | Same wire contract **plus** engine internals (`PageContent`, `PageFormData`, `AgentLog`, `LLMAnalysisResult`, `ModelComparison`, `BrowserTestResult`, `FormAnalysis`, `ScanRequest`, …) |
+
+Keep the shared wire contract (`Signal`/`AgentResult`/`FinalVerdict`) **additive** — e.g. the `Signal.origin` field was added to all three copies — so the copies stay compatible without byte-for-byte syncing. Everything else is expected to diverge.
 
 ---
 
@@ -714,7 +741,7 @@ The following signal types trigger an **immediate block** (score >= 85) regardle
 | `known_phishing_domain` | Safe Browsing (external) | URL flagged by Google Safe Browsing v4 |
 | `typosquatting` | URL | Domain mimics a known brand (e.g., `paypa1.com`) |
 | `homograph` | URL | Unicode lookalike characters in domain (e.g., Cyrillic "а" in "pаypal") |
-| `brand_impersonation` | Domain | Brand as an exact label or glued to a credential keyword on a non-official domain (e.g., `paypal-login.com`, `paypalsecure.com`). Substring-only matches like `amazonaws.com` are excluded |
+| `brand_impersonation` | Domain | Brand as an exact label, glued to a credential keyword, or with a my/get/free-style squat prefix on a non-official domain (e.g., `paypal-login.com`, `paypalsecure.com`, `mypaypal.com`). Substring-only matches like `amazonaws.com` are excluded |
 | `brand_in_subdomain` | Domain | Brand label as a subdomain of an unrelated domain (e.g., `accounts.google.com.evil-site.top`) |
 | `download_attempted` | Tester | Automatic file download triggered on page load |
 | `safety_warning` | Tester | Browser Safe Browsing warning detected |

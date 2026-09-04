@@ -38,6 +38,14 @@ describe("brand detection false positives (must stay clean)", () => {
     expect(await brandSignals("https://googlemail.com/")).toEqual([]);
     expect(await brandSignals("https://login.microsoftonline.com/")).toEqual([]);
     expect(await brandSignals("https://shopify-support.com/")).toEqual([]);
+    expect(await brandSignals("https://netflixparty.com/")).toEqual([]);
+    expect(await brandSignals("https://instagrammer.com/")).toEqual([]);
+  });
+
+  it("does not flag words that merely start with a squat prefix", async () => {
+    // No brand involved — "get" + "response" is not "get" + a brand.
+    expect(await brandSignals("https://getresponse.com/")).toEqual([]);
+    expect(await brandSignals("https://mygov.com/")).toEqual([]);
   });
 
   it("excludes official brand subdomains at the label boundary", async () => {
@@ -76,6 +84,24 @@ describe("brand detection true positives (veto-class impersonation)", () => {
       "brand_impersonation",
     );
     expect(await brandSignals("https://my-paypal.com/")).toContain(
+      "brand_impersonation",
+    );
+  });
+
+  it("flags non-hyphenated my/get/free-style prefix squats", async () => {
+    expect(await brandSignals("https://mypaypal.com/")).toContain(
+      "brand_impersonation",
+    );
+    expect(await brandSignals("https://getpaypal.com/")).toContain(
+      "brand_impersonation",
+    );
+    expect(await brandSignals("https://freepaypal.com/")).toContain(
+      "brand_impersonation",
+    );
+    expect(await brandSignals("https://officialamazon.com/")).toContain(
+      "brand_impersonation",
+    );
+    expect(await brandSignals("https://myapple.com/")).toContain(
       "brand_impersonation",
     );
   });
