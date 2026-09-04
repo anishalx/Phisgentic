@@ -166,10 +166,14 @@ export class UrlAgent extends BaseAgent {
         /^172\.(1[6-9]|2[0-9]|3[01])\./.test(ip);
 
       if (!isPrivateIP) {
+        // Critical severity: public IP + credential keywords is a classic
+        // phishing pattern. This triggers the allow→warn bump rule with a
+        // single signal (see orchestrator). Not in CRITICAL_VETO_SIGNALS,
+        // so it does NOT hard-block on its own.
         signals.push(
           this.createSignal(
             "ip_address",
-            "high",
+            "critical",
             parsed.hostname,
             "URL uses public IP address instead of domain",
           ),
